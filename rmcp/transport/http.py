@@ -456,16 +456,29 @@ for the latest spec (preferred); `2025-06-18` remains supported for compatibilit
             Standard EventSource connection. Events are JSON-encoded.
 
             **Event Types:**
+            - `endpoint`: Initial event with POST URL for JSON-RPC requests
             - `notification`: Statistical analysis progress/results
             - `keepalive`: Connection health check
             """,
             response_description="Server-Sent Events stream",
         )
-        async def handle_sse() -> EventSourceResponse:
+        async def handle_sse(request: Request) -> EventSourceResponse:
             """Handle Server-Sent Events for notifications."""
+            # Build the endpoint URL from the request
+            scheme = request.url.scheme
+            host = request.headers.get("host", f"{self.host}:{self.port}")
+            endpoint_url = f"{scheme}://{host}/mcp"
 
             async def event_generator():
                 """Generate SSE events from notification queue."""
+                # Send the endpoint event first (required by MCP SSE transport spec)
+                # This tells the client where to POST JSON-RPC requests
+                yield {
+                    "event": "endpoint",
+                    "data": endpoint_url,
+                }
+                logger.info(f"SSE client connected, sent endpoint: {endpoint_url}")
+
                 while True:
                     try:
                         notifications_sent = False

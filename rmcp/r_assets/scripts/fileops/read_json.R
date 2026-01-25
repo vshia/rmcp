@@ -58,7 +58,7 @@ result <- list(
     file_path = file_path,
     rows = nrow(data),
     columns = ncol(data),
-    column_names = colnames(data),
+    column_names = I(colnames(data)),  # I() preserves array structure in JSON
     file_size_bytes = file_size,
     modified_date = modified_date,
     is_url = grepl("^https?://", file_path)
@@ -66,7 +66,7 @@ result <- list(
   summary = list(
     rows_read = nrow(data),
     columns_read = ncol(data),
-    column_types = as.list(sapply(data, class)),
+    column_types = as.list(sapply(data, function(x) paste(class(x), collapse = "/"))),  # Collapse multi-class types to string
     missing_values = as.list(sapply(data, function(x) sum(is.na(x)))),
     sample_data = if (nrow(data) > 0) head(data, 3) else data.frame()
   )

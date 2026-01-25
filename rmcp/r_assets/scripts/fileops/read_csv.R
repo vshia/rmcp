@@ -60,29 +60,29 @@ if (!is_url) {
   modified_date <- NA
 }
 result <- list(
-  data = data,
+  data = as.list(data),  # Convert data.frame to column-wise list for JSON serialization
   file_info = list(
     file_path = file_path,
     is_url = is_url,
     n_rows = nrow(data),
     n_cols = ncol(data),
-    column_names = names(data),
-    numeric_variables = numeric_vars,
-    character_variables = character_vars,
-    factor_variables = factor_vars,
+    column_names = I(names(data)),  # I() preserves array structure in JSON
+    numeric_variables = I(numeric_vars),
+    character_variables = I(character_vars),
+    factor_variables = I(factor_vars),
     file_size_bytes = file_size,
     modified_date = modified_date
   ),
   parsing_info = list(
     header = header,
     separator = sep,
-    na_strings = na_strings,
+    na_strings = I(na_strings),  # I() preserves array structure in JSON
     rows_skipped = skip_rows
   ),
   summary = list(
     rows_read = nrow(data),
     columns_read = ncol(data),
-    column_types = as.list(sapply(data, class)),
+    column_types = as.list(sapply(data, function(x) paste(class(x), collapse = "/"))),  # Collapse multi-class types to string
     missing_values = as.list(sapply(data, function(x) sum(is.na(x)))),
     sample_data = if (nrow(data) > 0) head(data, 3) else data.frame()
   )
