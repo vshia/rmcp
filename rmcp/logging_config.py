@@ -290,13 +290,13 @@ class LogContext:
         """Exit logging context and reset context variables."""
         for var_name, token in reversed(self._tokens):
             if var_name == "correlation_id":
-                correlation_id_var.set(token.old_value)
+                correlation_id_var.reset(token)
             elif var_name == "session_id":
-                session_id_var.set(token.old_value)
+                session_id_var.reset(token)
             elif var_name == "request_id":
-                request_id_var.set(token.old_value)
+                request_id_var.reset(token)
             elif var_name == "start_time":
-                request_start_time_var.set(token.old_value)
+                request_start_time_var.reset(token)
 
 
 def log_tool_execution(
