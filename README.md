@@ -91,7 +91,8 @@ Formula building, error recovery, example datasets → *"Help me build a regress
 # Core packages (install these first)
 install.packages(c(
   "jsonlite", "dplyr", "ggplot2", "broom", "plm", "forecast",
-  "randomForest", "rpart", "caret", "AER", "vars", "mgcv"
+  "randomForest", "rpart", "caret", "AER", "vars", "mgcv",
+  "knitr", "readxl",
 ))
 
 # Full ecosystem automatically available: Machine Learning (61 packages),
@@ -113,7 +114,7 @@ pip install rmcp[http]
 # Development installation
 git clone https://github.com/finite-sample/rmcp.git
 cd rmcp
-pip install -e ".[dev]"
+pip install -e ".[dev]" or uv pip install -e ".[dev]"
 ```
 
 ### Claude Desktop Integration
