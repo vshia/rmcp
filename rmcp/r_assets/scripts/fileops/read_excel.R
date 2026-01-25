@@ -67,21 +67,21 @@ data <- as.data.frame(data)
 # Get file info
 file_info <- file.info(file_path)
 result <- list(
-  data = data,
+  data = as.list(data),  # Convert data.frame to column-wise list for JSON serialization
   file_info = list(
     file_path = file_path,
     sheet_name = actual_sheet_name,
-    available_sheets = sheet_names,
+    available_sheets = I(sheet_names),  # I() preserves array structure in JSON
     rows = nrow(data),
     columns = ncol(data),
-    column_names = colnames(data),
+    column_names = I(colnames(data)),  # I() preserves array structure in JSON
     file_size_bytes = file_info$size,
     modified_date = as.character(file_info$mtime)
   ),
   summary = list(
     rows_read = nrow(data),
     columns_read = ncol(data),
-    column_types = as.list(sapply(data, class)),
+    column_types = as.list(sapply(data, function(x) paste(class(x), collapse = "/"))),  # Collapse multi-class types to string
     missing_values = as.list(sapply(data, function(x) sum(is.na(x)))),
     sample_data = if (nrow(data) > 0) head(data, 3) else data.frame()
   )

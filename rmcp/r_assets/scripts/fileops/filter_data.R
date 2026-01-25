@@ -55,7 +55,7 @@ filtered_data <- tryCatch(
   }
 )
 result <- list(
-  data = filtered_data,
+  data = as.list(filtered_data),  # Convert data.frame to column-wise list for JSON serialization
   filter_expression = full_expression,
   original_rows = nrow(data),
   filtered_rows = nrow(filtered_data),
