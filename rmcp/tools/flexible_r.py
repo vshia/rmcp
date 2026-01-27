@@ -411,10 +411,11 @@ if (exists("safe_encode_plot")) {
             result = await execute_r_script_with_image_async(
                 full_script,
                 args,
+                context=context,
                 include_image=True,
             )
         else:
-            result = await execute_r_script_async(full_script, args)
+            result = await execute_r_script_async(full_script, args, context=context)
 
         await context.info("R analysis completed successfully")
 

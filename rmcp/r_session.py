@@ -171,7 +171,14 @@ class RSessionManager:
 
         # Determine working directory
         if working_directory is None:
-            working_directory = Path.cwd()
+            # Create session-specific export directory to keep root clean
+            # as requested by the user.
+            exports_dir = Path.cwd() / "exports"
+            exports_dir.mkdir(exist_ok=True)
+
+            session_dir = exports_dir / session_id
+            session_dir.mkdir(parents=True, exist_ok=True)
+            working_directory = session_dir
 
         # Create session info
         session_info = RSessionInfo(

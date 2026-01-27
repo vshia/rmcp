@@ -102,7 +102,7 @@ async def read_csv(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "read_csv")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info(
             "CSV file read successfully",
             rows=result["file_info"]["n_rows"],
@@ -178,7 +178,7 @@ async def write_csv(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "write_csv")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("CSV file written successfully")
         return result
     except Exception as e:
@@ -254,7 +254,7 @@ async def write_excel(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "write_excel")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("Excel file written successfully")
         return result
     except Exception as e:
@@ -352,7 +352,7 @@ async def data_info(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "data_info")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("Dataset analysis completed successfully")
         return result
     except Exception as e:
@@ -441,7 +441,7 @@ async def filter_data(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "filter_data")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("Data filtered successfully")
         return result
     except Exception as e:
@@ -532,7 +532,7 @@ async def read_excel(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "read_excel")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info(
             "Excel file read successfully",
             rows=result["file_info"]["rows"],
@@ -626,7 +626,7 @@ async def read_json(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "read_json")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info(
             "JSON file read successfully",
             rows=result["file_info"]["rows"],
@@ -712,7 +712,7 @@ async def write_json(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "write_json")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("JSON file written successfully")
         return result
     except Exception as e:

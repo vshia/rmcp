@@ -133,7 +133,7 @@ async def arima_model(context, params) -> dict[str, Any]:
 
     r_script = get_r_script("timeseries", "arima_model")
     try:
-        result = await execute_r_script_async(r_script, params, context)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info(
             "ARIMA model fitted successfully",
             aic=result.get("aic"),
@@ -225,7 +225,7 @@ async def decompose_timeseries(context, params) -> dict[str, Any]:
 
     r_script = get_r_script("timeseries", "decompose_timeseries")
     try:
-        result = await execute_r_script_async(r_script, params, context)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("Time series decomposed successfully")
         return result
     except Exception as e:
@@ -305,7 +305,7 @@ async def stationarity_test(context, params) -> dict[str, Any]:
 
     r_script = get_r_script("timeseries", "stationarity_test")
     try:
-        result = await execute_r_script_async(r_script, params, context)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info(
             "Stationarity test completed",
             test=result.get("test_name"),
