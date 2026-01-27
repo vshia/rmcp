@@ -212,6 +212,30 @@ async def histogram(context, params) -> dict[str, Any]:
             image_width=width,
             image_height=height,
         )
+
+        # Helper to safely get numeric values (handles None/NaN from R)
+        def safe_num(value, default=0.0):
+            if value is None:
+                return default
+            # Handle NaN (from R's NaN converted to JSON)
+            if isinstance(value, float) and value != value:  # NaN check
+                return default
+            return value
+
+        # Ensure statistics are properly handled for schema compliance
+        stats = result.get("statistics", {})
+        result["statistics"] = {
+            "mean": safe_num(stats.get("mean"), 0.0),
+            "median": safe_num(stats.get("median"), 0.0),
+            "sd": safe_num(stats.get("sd"), 0.0),
+            "skewness": safe_num(stats.get("skewness"), 0.0),
+            "kurtosis": safe_num(stats.get("kurtosis"), 0.0),
+        }
+
+        # Ensure n_obs is an integer
+        n_obs = result.get("n_obs")
+        result["n_obs"] = int(n_obs) if n_obs is not None else 0
+
         await context.info("Histogram created successfully")
         return result
     except Exception as e:
@@ -316,31 +340,24 @@ async def boxplot(context, params) -> dict[str, Any]:
         stats = result.get("statistics", {})
         group_var = result.get("group_variable")
 
+        # Helper to safely get numeric values (handles None from R's NA)
+        def safe_num(value, default=0):
+            return value if value is not None else default
+
+        def safe_int(value, default=0):
+            return int(value) if value is not None else default
+
         # Create summary_statistics in the format expected by schema
-        if group_var and group_var != "NA":
-            # For grouped data (not implemented in R script yet, use overall stats)
-            summary_statistics = {
-                "Overall": {
-                    "median": stats.get("median", 0),
-                    "q1": stats.get("q1", 0),
-                    "q3": stats.get("q3", 0),
-                    "iqr": stats.get("iqr", 0),
-                    "n": result.get("n_obs", 0),
-                    "outliers": stats.get("outliers_count", 0),
-                }
+        summary_statistics = {
+            "Overall": {
+                "median": safe_num(stats.get("median"), 0),
+                "q1": safe_num(stats.get("q1"), 0),
+                "q3": safe_num(stats.get("q3"), 0),
+                "iqr": safe_num(stats.get("iqr"), 0),
+                "n": safe_int(result.get("n_obs"), 0),
+                "outliers": safe_int(stats.get("outliers_count"), 0),
             }
-        else:
-            # For single variable
-            summary_statistics = {
-                "Overall": {
-                    "median": stats.get("median", 0),
-                    "q1": stats.get("q1", 0),
-                    "q3": stats.get("q3", 0),
-                    "iqr": stats.get("iqr", 0),
-                    "n": result.get("n_obs", 0),
-                    "outliers": stats.get("outliers_count", 0),
-                }
-            }
+        }
 
         schema_compliant_result = {
             "plot_type": result.get("plot_type", "boxplot"),
@@ -568,16 +585,32 @@ async def correlation_heatmap(context, params) -> dict[str, Any]:
         )
 
         # Ensure schema compliance by mapping R script result to expected format
+        variables = result.get("variables", [])
+        stats = result.get("statistics", {})
+        n_vars = stats.get("n_variables")
+        # Handle None value for n_variables
+        if n_vars is None:
+            n_vars = len(variables) if variables else 0
+
+        # Transform correlation_matrix from R matrix (2D array) to object format
+        # R matrices serialize as [[row1], [row2], ...] but schema expects {"var1": [...], "var2": [...]}
+        raw_matrix = result.get("correlation_matrix", [])
+        if isinstance(raw_matrix, list) and len(raw_matrix) > 0:
+            # Convert 2D array to object keyed by variable names
+            correlation_matrix = {
+                var: row if isinstance(row, list) else [row]
+                for var, row in zip(variables, raw_matrix)
+            }
+        else:
+            # Already in object format or empty
+            correlation_matrix = raw_matrix if isinstance(raw_matrix, dict) else {}
+
         schema_compliant_result = {
             "plot_type": result.get("plot_type", "heatmap"),
-            "correlation_matrix": result.get("correlation_matrix", {}),
-            "variables": result.get("variables", []),
-            "method": result.get("statistics", {}).get(
-                "method", params.get("method", "pearson")
-            ),
-            "n_variables": result.get("statistics", {}).get(
-                "n_variables", len(result.get("variables", []))
-            ),
+            "correlation_matrix": correlation_matrix,
+            "variables": variables,
+            "method": stats.get("method") or params.get("method", "pearson"),
+            "n_variables": int(n_vars),
         }
 
         # Add optional fields if present

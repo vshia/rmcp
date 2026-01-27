@@ -278,7 +278,7 @@ def validate_r_code(r_code: str, context=None) -> tuple[bool, str | None]:
         },
         "required": ["success"],
     },
-    description="Executes custom R code for advanced statistical analyses beyond the built-in tools, with comprehensive safety validation including package whitelisting, timeout protection, and audit logging. Supports complex statistical procedures, custom visualizations, and specialized analyses not covered by structured tools. Use for cutting-edge statistical methods, custom modeling approaches, research-specific analyses, or when existing tools don't meet specific analytical requirements. Essential for advanced users needing R's full statistical capabilities.",
+    description="Executes custom R code for advanced statistical analyses beyond the built-in tools, with comprehensive safety validation including package whitelisting, timeout protection, and audit logging. Supports complex statistical procedures, custom visualizations, and specialized analyses not covered by structured tools. Use for cutting-edge statistical methods, custom modeling approaches, research-specific analyses, or when existing tools don't meet specific analytical requirements. Essential for advanced users needing R's full statistical capabilities. IMPORTANT: When referring to column names that contain spaces or special characters (e.g., 'Credit (Revenue)'), you MUST enclose them in backticks (e.g., `Credit (Revenue)`) in your R code.",
 )
 async def execute_r_analysis(context, params) -> dict[str, Any]:
     """Execute flexible R code with safety checks."""
@@ -361,6 +361,46 @@ Please respond with your choice. If you approve, the analysis will continue with
         "result <- list(error = 'No result variable defined') }"
     )
 
+    # Auto-capture plots when return_image is requested
+    if return_image:
+        script_parts.append("# Auto-capture any plot created")
+        script_parts.append("""
+# Try to capture the last ggplot using ggplot2::last_plot()
+if (exists("safe_encode_plot")) {
+  captured_plot <- NULL
+
+  # First try ggplot2::last_plot() which captures plots even if not assigned
+  if (requireNamespace("ggplot2", quietly = TRUE)) {
+    last_gg <- tryCatch(ggplot2::last_plot(), error = function(e) NULL)
+    if (!is.null(last_gg) && (inherits(last_gg, "ggplot") || inherits(last_gg, "gg"))) {
+      captured_plot <- last_gg
+    }
+  }
+
+  # Fallback: look for ggplot objects in environment variables
+  if (is.null(captured_plot)) {
+    for (obj_name in ls()) {
+      obj <- tryCatch(get(obj_name), error = function(e) NULL)
+      if (!is.null(obj) && (inherits(obj, "ggplot") || inherits(obj, "gg"))) {
+        captured_plot <- obj
+      }
+    }
+  }
+
+  # Encode the captured plot
+  if (!is.null(captured_plot)) {
+    image_data <- safe_encode_plot(captured_plot, width = args$image_width %||% 800, height = args$image_height %||% 600)
+    if (!is.null(image_data) && nchar(image_data) > 100) {
+      if (is.list(result)) {
+        result$image_data <- image_data
+      } else {
+        result <- list(data = result, image_data = image_data)
+      }
+    }
+  }
+}
+""")
+
     full_script = "\n".join(script_parts)
 
     try:
@@ -393,13 +433,27 @@ Please respond with your choice. If you approve, the analysis will continue with
             success=True,
         )
 
-        return {
+        # Build response
+        response = {
             "success": True,
             "result": result,
             "r_code_executed": full_script,
             "packages_loaded": packages,
             "description": description,
         }
+
+        # Extract image_data from result if it exists (for plot capture)
+        if isinstance(result, dict):
+            if "image_data" in result:
+                response["image_data"] = result["image_data"]
+                response["image_mime_type"] = "image/png"
+            # Also check for nested result structure
+            elif "data" in result and isinstance(result.get("data"), dict):
+                if "image_data" in result["data"]:
+                    response["image_data"] = result["data"]["image_data"]
+                    response["image_mime_type"] = "image/png"
+
+        return response
 
     except Exception as e:
         await context.error(f"R execution failed: {str(e)}")
