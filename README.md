@@ -92,7 +92,7 @@ Formula building, error recovery, example datasets → *"Help me build a regress
 install.packages(c(
   "jsonlite", "dplyr", "ggplot2", "broom", "plm", "forecast",
   "randomForest", "rpart", "caret", "AER", "vars", "mgcv",
-  "knitr", "readxl", "base64enc"
+  "knitr", "readxl", "base64enc", "openxlsx"
 ))
 
 # Full ecosystem automatically available: Machine Learning (61 packages),
