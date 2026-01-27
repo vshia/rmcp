@@ -278,7 +278,7 @@ def validate_r_code(r_code: str, context=None) -> tuple[bool, str | None]:
         },
         "required": ["success"],
     },
-    description="Executes custom R code for advanced statistical analyses beyond the built-in tools, with comprehensive safety validation including package whitelisting, timeout protection, and audit logging. Supports complex statistical procedures, custom visualizations, and specialized analyses not covered by structured tools. Use for cutting-edge statistical methods, custom modeling approaches, research-specific analyses, or when existing tools don't meet specific analytical requirements. Essential for advanced users needing R's full statistical capabilities.",
+    description="Executes custom R code for advanced statistical analyses beyond the built-in tools, with comprehensive safety validation including package whitelisting, timeout protection, and audit logging. Supports complex statistical procedures, custom visualizations, and specialized analyses not covered by structured tools. Use for cutting-edge statistical methods, custom modeling approaches, research-specific analyses, or when existing tools don't meet specific analytical requirements. Essential for advanced users needing R's full statistical capabilities. IMPORTANT: When referring to column names that contain spaces or special characters (e.g., 'Credit (Revenue)'), you MUST enclose them in backticks (e.g., `Credit (Revenue)`) in your R code.",
 )
 async def execute_r_analysis(context, params) -> dict[str, Any]:
     """Execute flexible R code with safety checks."""

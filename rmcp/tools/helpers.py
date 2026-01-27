@@ -120,13 +120,19 @@ async def suggest_fix(context, params) -> dict[str, Any]:
             "Use data_info tool to see available variables in your dataset",
             "Verify spelling of variable names (R is case-sensitive)",
         ]
+        # Detect special characters or spaces in the missing object name
+        match = re.search(r"object ['\"]([^'\"]+)['\"] not found", error_message.lower())
+        if match:
+            obj_name = match.group(1)
+            if re.search(r"[^a-zA-Z0-9._]", obj_name):
+                suggestions.insert(0, f"Variable '{obj_name}' contains special characters or spaces. In R, you MUST enclose such names in backticks: `{obj_name}`")
     # Formula errors
     elif "invalid formula" in error_message.lower() or "~" in error_message:
         error_type = "formula_syntax"
         suggestions = [
             "Check formula syntax: outcome ~ predictor1 + predictor2",
             "Use build_formula tool for natural language formula creation",
-            "Ensure variable names don't contain spaces or special characters",
+            "Ensure variable names with spaces or special characters are enclosed in backticks (e.g., `Variable Name`)",
         ]
     # File not found errors
     elif (
