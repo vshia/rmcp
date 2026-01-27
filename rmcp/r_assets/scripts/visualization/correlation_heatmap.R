@@ -10,7 +10,7 @@ library(reshape2)
 library(rlang)
 
 # Prepare data and parameters
-variables <- args$variables
+variables <- args$variables %||% names(data)
 method <- args$method %||% "pearson"
 title <- args$title %||% paste("Correlation Heatmap -", toupper(method))
 file_path <- args$file_path
@@ -60,7 +60,7 @@ stats <- list(
 )
 # Prepare result
 result <- list(
-  plot_type = "correlation_heatmap",
+  plot_type = "heatmap",
   variables = variables,
   correlation_matrix = cor_matrix,
   statistics = stats,
