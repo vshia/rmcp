@@ -116,3 +116,6 @@ environment.pickle
 # Poetry lock file (using Docker-first approach)
 poetry.lock
 gcp_project_key.json
+
+# RMCP config
+.rmcp/config.json
