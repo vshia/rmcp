@@ -3,7 +3,15 @@ File operations tools for RMCP.
 Data import, export, and file manipulation capabilities.
 """
 
+import os
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+
+from ..config import get_config
+
+import boto3
+from botocore.exceptions import ClientError
 
 from ..core.schemas import table_schema
 from ..r_assets.loader import get_r_script
@@ -758,17 +766,93 @@ async def write_json(context, params) -> dict[str, Any]:
     description="Uploads a file to a cloud storage service and returns the file URI along with success status and timestamp.",
 )
 async def upload_file_to_cloud(context, params) -> dict[str, Any]:
-    print("Upload file to cloud - tool called")
-    print("params", context)
-    print("params", params)
+    """Upload file to AWS S3 cloud storage."""
+    file_path = params.get("file_path")
+    await context.info("Uploading file to S3", file_path=file_path)
 
-    """Read JSON file and return data."""
-    await context.info("Getting file", file_path=params.get("file_path"))
-    full_path = context.get_full_filepath(params.get("file_path"))
-    print("full_path", full_path)
+    # Get full file path
+    full_path = context.get_full_filepath(file_path)
 
-    return {
-        "file_uri": "https://cloudstorage.example.com/uploaded_file.csv",
-        "success": True,
-        "timestamp": "2024-10-01T12:00:00Z",
-    }
+    # Validate file exists
+    if not os.path.exists(full_path):
+        raise FileNotFoundError(f"File not found: {full_path}")
+
+    # Get AWS credentials from context config
+    config = get_config()
+    aws_config = config.get("aws", {}) if isinstance(config, dict) else {}
+
+    # Get AWS configuration
+    bucket_name = aws_config.get("s3_bucket") or os.getenv("AWS_S3_BUCKET")
+    aws_access_key = aws_config.get("access_key_id") or os.getenv("AWS_ACCESS_KEY_ID")
+    aws_secret_key = aws_config.get("secret_access_key") or os.getenv(
+        "AWS_SECRET_ACCESS_KEY"
+    )
+    aws_region = aws_config.get("region") or os.getenv("AWS_REGION", "us-east-1")
+    s3_prefix = aws_config.get("s3_prefix", "rmcp-uploads")
+
+    # Validate required configuration
+    if not bucket_name:
+        raise ValueError(
+            "AWS S3 bucket not configured. Set AWS_S3_BUCKET environment variable or configure in .rmcp/config.json"
+        )
+
+    try:
+        # Initialize S3 client
+        s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key,
+            region_name=aws_region,
+        )
+
+        # Generate S3 key (path in bucket)
+        file_name = Path(full_path).name
+        s3_key = f"{s3_prefix}/{file_name}" if s3_prefix else file_name
+
+        # Upload file to S3 with metadata for 30-day auto-delete
+        await context.info("Uploading to S3", bucket=bucket_name, key=s3_key)
+
+        # Tag object for lifecycle management (requires bucket lifecycle policy)
+        # Bucket should have lifecycle rule: delete objects with tag auto-delete=30days after 30 days
+        # ACL set to private ensures file is only accessible via presigned URL
+        s3_client.upload_file(
+            full_path,
+            bucket_name,
+            s3_key,
+            ExtraArgs={
+                "ACL": "private",  # Ensure object is private, only accessible via presigned URL
+                "Tagging": "auto-delete=30days",
+                "Metadata": {
+                    "auto-delete-days": "30",
+                    "uploaded-by": "rmcp",
+                },
+            },
+        )
+
+        # Generate presigned URL with 24-hour expiration
+        file_uri = s3_client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket_name, "Key": s3_key},
+            ExpiresIn=86400 * 30,  # 24 hours in seconds
+        )
+
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+        await context.info(
+            "File uploaded successfully", file_uri=file_uri, timestamp=timestamp
+        )
+
+        return {
+            "file_uri": file_uri,
+            "success": True,
+            "timestamp": timestamp,
+        }
+
+    except ClientError as e:
+        error_msg = f"S3 upload failed: {str(e)}"
+        await context.error("S3 upload error", error=error_msg)
+        raise RuntimeError(error_msg) from e
+    except Exception as e:
+        error_msg = f"Unexpected error during upload: {str(e)}"
+        await context.error("Upload error", error=error_msg)
+        raise RuntimeError(error_msg) from e

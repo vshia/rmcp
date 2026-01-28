@@ -348,6 +348,9 @@ class RMCPConfig:
     debug: bool = False
     """Enable debug mode for verbose logging and configuration details."""
 
+    aws: dict[str, str] = field(default_factory=dict)
+    """AWS configuration for S3 uploads."""
+
     def __post_init__(self):
         """Validate configuration after initialization.
 
