@@ -168,6 +168,7 @@ class Context:
         """Get the R session ID for this context."""
         # Check for session ID in request metadata first
         session_id = self.request.metadata.get("r_session_id")
+        session_id = self.request.metadata.get("mcp_session_id")
         if session_id:
             return session_id
 
@@ -177,6 +178,7 @@ class Context:
     def set_r_session_id(self, session_id: str) -> None:
         """Set the R session ID for this context."""
         self.request.metadata["r_session_id"] = session_id
+        self.request.metadata["mcp_session_id"] = session_id
 
     async def get_or_create_r_session(
         self, working_directory: Path | None = None
