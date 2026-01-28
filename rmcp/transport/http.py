@@ -368,6 +368,7 @@ for the latest spec (preferred); `2025-06-18` remains supported for compatibilit
                         client_info=params.get("clientInfo"),
                     )
                 # Process through message handler
+                message["mcp_session_id"] = session_id
                 response = await self._message_handler(message)
 
                 # Log successful request with timing
