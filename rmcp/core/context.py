@@ -258,3 +258,12 @@ class Context:
         return await execute_r_script_async(
             script, args, self, working_directory=working_directory
         )
+
+    def get_full_filepath(self, relative_path: str, working_directory: str | None = None) -> Path:
+        """Get full file path within allowed resource mounts."""
+
+        # Determine working directory for exports as requested by the user
+        session_id: str = working_directory or self.get_r_session_id() or self.lifespan.default_r_session_id # type: ignore
+        exports_dir = Path.cwd() / "exports"
+        session_dir = exports_dir / session_id
+        return session_dir / relative_path

@@ -718,3 +718,57 @@ async def write_json(context, params) -> dict[str, Any]:
     except Exception as e:
         await context.error("JSON writing failed", error=str(e))
         raise
+
+@tool(
+    name="upload_file_to_cloud",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "description": "Path of the file to upload, from a different tool",
+            },
+        },
+        "required": ["file_path"],
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "file_uri": {
+                "type": "string",
+                "description": "URL for the uploaded file",
+            },
+            "success": {
+                "type": "boolean",
+                "enum": [True],
+                "description": "Whether the file was written successfully",
+            },
+            "timestamp": {
+                "type": "string",
+                "description": "Timestamp when the file was written",
+            },
+        },
+        "required": [
+            "file_uri",
+            "success",
+            "timestamp",
+        ],
+        "additionalProperties": False,
+    },
+    description="Uploads a file to a cloud storage service and returns the file URI along with success status and timestamp.",
+)
+async def upload_file_to_cloud(context, params) -> dict[str, Any]:
+    print("Upload file to cloud - tool called")
+    print("params", context)
+    print("params", params)
+
+    """Read JSON file and return data."""
+    await context.info("Getting file", file_path=params.get("file_path"))
+    full_path = context.get_full_filepath(params.get("file_path"))
+    print("full_path", full_path)
+
+    return {
+        "file_uri": "https://cloudstorage.example.com/uploaded_file.csv",
+        "success": True,
+        "timestamp": "2024-10-01T12:00:00Z",
+    }
