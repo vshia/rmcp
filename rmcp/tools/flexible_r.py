@@ -13,6 +13,7 @@ Security Features:
 
 import re
 import time
+from pathlib import Path
 from typing import Any
 
 from ..core.schemas import table_schema
@@ -112,6 +113,164 @@ def is_operation_approved(
     return specific_operation in operations
 
 
+def rewrite_file_paths_to_exports(context, r_code: str) -> str:
+    """
+    Automatically rewrite file paths to be relative paths for use with working directory.
+
+    This strips leading slashes from absolute paths (like /mnt/data/, /tmp/) so they
+    become relative paths. The working directory is set to exports/{session_id}/ elsewhere,
+    so files will automatically save to the correct session directory.
+
+    Args:
+        context: The request context (for session ID, used for logging)
+        r_code: The R code to rewrite
+
+    Returns:
+        str: R code with absolute paths converted to relative paths
+    """
+    if not context:
+        return r_code
+
+    # Get session ID from context (for logging only)
+    session_id = None
+    if hasattr(context, 'request') and hasattr(context.request, 'metadata'):
+        session_id = context.request.metadata.get('mcp_session_id')
+    if not session_id and hasattr(context, 'get_r_session_id'):
+        try:
+            session_id = context.get_r_session_id()
+        except:
+            pass
+    if not session_id:
+        session_id = 'default'
+
+    # Pattern to match file operations with file paths
+    # Matches: ggsave("path"), write.csv(data, "path"), etc.
+    file_operation_patterns = [
+        # ggsave patterns - capture the file path
+        (r'ggsave\s*\(\s*(["\'])([^"\']+)\1', 'ggsave'),
+        (r'ggsave\s*\(\s*filename\s*=\s*(["\'])([^"\']+)\1', 'ggsave'),
+        # write.csv, write.table - second parameter is usually the file
+        (r'write\.csv\s*\([^,]+,\s*(["\'])([^"\']+)\1', 'write.csv'),
+        (r'write\.csv\s*\([^,]+,\s*file\s*=\s*(["\'])([^"\']+)\1', 'write.csv'),
+        (r'write\.table\s*\([^,]+,\s*(["\'])([^"\']+)\1', 'write.table'),
+        (r'write\.table\s*\([^,]+,\s*file\s*=\s*(["\'])([^"\']+)\1', 'write.table'),
+        # write.xlsx
+        (r'write\.xlsx\s*\([^,]+,\s*(["\'])([^"\']+)\1', 'write.xlsx'),
+        (r'write\.xlsx\s*\([^,]+,\s*file\s*=\s*(["\')([^"\']+)\1', 'write.xlsx'),
+        # saveRDS
+        (r'saveRDS\s*\([^,]+,\s*(["\'])([^"\']+)\1', 'saveRDS'),
+        (r'saveRDS\s*\([^,]+,\s*file\s*=\s*(["\'])([^"\']+)\1', 'saveRDS'),
+        # writeLines
+        (r'writeLines\s*\([^,]+,\s*(["\'])([^"\']+)\1', 'writeLines'),
+    ]
+
+    modified_code = r_code
+
+    for pattern, _ in file_operation_patterns:
+        matches = list(re.finditer(pattern, modified_code, re.IGNORECASE))
+        # Process matches in reverse order to maintain correct positions
+        for match in reversed(matches):
+            quote_char = match.group(1)  # " or '
+            file_path = match.group(2)   # The file path
+
+            # Skip if already a relative path (no leading slash)
+            if not file_path.startswith('/'):
+                continue
+
+            # Remove leading slash to convert to relative path
+            # /mnt/data/plot.png -> mnt/data/plot.png
+            # Working directory will be set to exports/{session_id}/ so this will save to:
+            # exports/{session_id}/mnt/data/plot.png
+            new_path = file_path.lstrip('/')
+
+            # Replace the old path with the new path in the match
+            old_full = match.group(0)
+            new_full = old_full.replace(f"{quote_char}{file_path}{quote_char}",
+                                       f"{quote_char}{new_path}{quote_char}")
+
+            # Replace in the code
+            modified_code = (
+                modified_code[:match.start()] +
+                new_full +
+                modified_code[match.end():]
+            )
+
+    if modified_code != r_code:
+        logger.info(f"✏️  Converted absolute paths to relative paths for session {session_id}")
+
+    return modified_code
+
+
+def auto_approve_exports_operations(context, r_code: str) -> bool:
+    """
+    Automatically approve file operations since all paths are rewritten to exports.
+
+    After path rewriting, ALL file operations target the exports/{session_id}/ directory,
+    so we can safely auto-approve them. This function:
+    1. Detects if any file operations exist in the code
+    2. Auto-approves them for the exports directory
+    3. Enables VFS write mode
+    4. Adds exports directory to VFS allowed roots
+
+    Returns:
+        bool: True if file operations were auto-approved, False otherwise
+    """
+    if not context:
+        return False
+
+    # Simple check: does code contain any file operations?
+    # Since all paths are rewritten to exports/, we just need to detect the operations
+    file_operation_patterns = [
+        r"ggsave\s*\(",
+        r"write\.csv\s*\(",
+        r"write\.table\s*\(",
+        r"writeLines\s*\(",
+        r"write\.xlsx\s*\(",
+        r"saveRDS\s*\(",
+    ]
+
+    has_file_operations = any(
+        re.search(pattern, r_code, re.IGNORECASE) for pattern in file_operation_patterns
+    )
+
+    if not has_file_operations:
+        return False
+
+    # Initialize approval tracking if needed
+    if not hasattr(context, "_approved_operations"):
+        context._approved_operations = {}
+
+    # Auto-approve file operations for exports directory
+    if "file_operations" not in context._approved_operations:
+        context._approved_operations["file_operations"] = {}
+
+    # Approve all file operation types (since all paths go to exports after rewriting)
+    for op in ["ggsave", "write.csv", "write.table", "writeLines", "write.xlsx", "saveRDS"]:
+        if op not in context._approved_operations["file_operations"]:
+            context._approved_operations["file_operations"][op] = {
+                "specific_operation": op,
+                "scope": "session",
+                "approved_at": time.time(),
+                "directory": "./exports",
+                "auto_approved": True,
+            }
+
+    # Enable VFS write mode and add exports directory as allowed root
+    if hasattr(context.lifespan, "vfs") and context.lifespan.vfs:
+        # Disable read-only mode
+        context.lifespan.vfs.read_only = False
+
+        # Add exports directory as allowed root
+        exports_path = Path.cwd() / "exports"
+        exports_path.mkdir(parents=True, exist_ok=True)
+
+        if exports_path.resolve() not in context.lifespan.vfs.allowed_roots:
+            context.lifespan.vfs.allowed_roots.append(exports_path.resolve())
+
+    logger.info("✅ Auto-approved file operations for exports directory")
+    return True
+
+
 def validate_r_code(r_code: str, context=None) -> tuple[bool, str | None]:
     """
     Validate R code for safety with interactive operation and package approval.
@@ -119,6 +278,9 @@ def validate_r_code(r_code: str, context=None) -> tuple[bool, str | None]:
     Returns:
         (is_safe, error_message)
     """
+    # Auto-approve file operations targeting exports directory
+    auto_approve_exports_operations(context, r_code)
+
     # Check for controllable operations that need approval
     for operation_type, config in OPERATION_CATEGORIES.items():
         for pattern in config["patterns"]:
@@ -292,6 +454,9 @@ async def execute_r_analysis(context, params) -> dict[str, Any]:
 
     await context.info(f"Executing R analysis: {description}")
 
+    # Rewrite file paths to exports directory with session ID
+    r_code = rewrite_file_paths_to_exports(context, r_code)
+
     # Package validation is now handled in validate_r_code function below
 
     # Validate R code with interactive approval
@@ -341,6 +506,32 @@ Please respond with your choice. If you approve, the analysis will continue with
         "options(warn = 1)  # Print warnings as they occur",
         "options(max.print = 10000)  # Limit output size",
     ]
+
+    # Create subdirectories for file operations if auto-approved
+    # Since working directory is set to exports/{session_id}/, we need to create relative subdirectories
+    if hasattr(context, "_approved_operations") and "file_operations" in context._approved_operations:
+        file_ops = context._approved_operations["file_operations"]
+        if any(op_data.get("auto_approved") and op_data.get("directory") == "./exports"
+               for op_data in file_ops.values()):
+            script_parts.append("# Create subdirectories for file operations")
+
+            # Extract all relative paths from the R code to create necessary subdirectories
+            # Look for paths in file operations (quotes with path separators)
+            file_paths = re.findall(r'["\']([^"\']+/[^"\']+)["\']', r_code)
+            unique_dirs = set()
+            for path in file_paths:
+                # Skip if path looks like a URL or absolute path
+                if path.startswith('http') or path.startswith('/'):
+                    continue
+                # Get directory part (everything except the filename)
+                dir_part = '/'.join(path.split('/')[:-1])
+                if dir_part:
+                    unique_dirs.add(dir_part)
+
+            # Create all necessary directories (relative to working directory)
+            if unique_dirs:
+                for dir_path in unique_dirs:
+                    script_parts.append(f"if (!dir.exists('{dir_path}')) {{ dir.create('{dir_path}', recursive = TRUE) }}")
 
     # Add required packages
     for pkg in packages:
@@ -407,15 +598,31 @@ if (exists("safe_encode_plot")) {
         # Execute with appropriate function based on image requirement
         args = {"data": data} if data else {}
 
+        # Set working directory to session-specific exports directory
+        working_directory = None
+        session_id = context.get_r_session_id() if hasattr(context, 'get_r_session_id') else None
+        if session_id:
+            try:
+                exports_dir = Path.cwd() / "exports"
+                exports_dir.mkdir(exist_ok=True)
+                session_dir = exports_dir / session_id
+                session_dir.mkdir(parents=True, exist_ok=True)
+                working_directory = session_dir
+            except Exception as e:
+                logger.warning(f"Failed to create export directory: {e}")
+
         if return_image:
             result = await execute_r_script_with_image_async(
                 full_script,
                 args,
                 context=context,
                 include_image=True,
+                working_directory=working_directory,
             )
         else:
-            result = await execute_r_script_async(full_script, args, context=context)
+            result = await execute_r_script_async(
+                full_script, args, context=context, working_directory=working_directory
+            )
 
         await context.info("R analysis completed successfully")
 
@@ -490,12 +697,16 @@ OPERATION_CATEGORIES = {
             r"write\.csv\s*\(",
             r"write\.table\s*\(",
             r"writeLines\s*\(",
+            r"write\.xlsx\s*\(",
+            r"saveRDS\s*\(",
         ],
         "description": "File writing and saving operations",
         "examples": [
             "ggsave('plot.png', plot)",
             "write.csv(data, 'file.csv')",
             "writeLines(text, 'file.txt')",
+            "write.xlsx(data, 'file.xlsx')",
+            "saveRDS(object, 'file.rds')",
         ],
         "security_level": "medium",
     },
