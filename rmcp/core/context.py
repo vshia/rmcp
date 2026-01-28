@@ -222,7 +222,7 @@ class Context:
         """
         # Determine working directory for exports as requested by the user
         working_directory = None
-        session_id = self.get_r_session_id() or "default"
+        session_id = self.get_r_session_id()
         if session_id:
             try:
                 exports_dir = Path.cwd() / "exports"
