@@ -168,6 +168,7 @@ class Context:
         """Get the R session ID for this context."""
         # Check for session ID in request metadata first
         session_id = self.request.metadata.get("r_session_id")
+        session_id = self.request.metadata.get("mcp_session_id")
         if session_id:
             return session_id
 
@@ -177,6 +178,7 @@ class Context:
     def set_r_session_id(self, session_id: str) -> None:
         """Set the R session ID for this context."""
         self.request.metadata["r_session_id"] = session_id
+        self.request.metadata["mcp_session_id"] = session_id
 
     async def get_or_create_r_session(
         self, working_directory: Path | None = None
@@ -218,12 +220,28 @@ class Context:
         Returns:
             Script execution results
         """
+        # Determine working directory for exports as requested by the user
+        working_directory = None
+        session_id = self.get_r_session_id()
+        if session_id:
+            try:
+                exports_dir = Path.cwd() / "exports"
+                exports_dir.mkdir(exist_ok=True)
+                session_dir = exports_dir / session_id
+                session_dir.mkdir(parents=True, exist_ok=True)
+                working_directory = session_dir
+            except Exception as e:
+                await self.warn(f"Failed to create export directory: {e}")
+
         # Try session execution first if enabled and requested
         if use_session and self.is_r_session_enabled():
             try:
                 from ..r_session import get_session_manager
 
-                session_id = await self.get_or_create_r_session()
+                # Use or create session with the determined working directory
+                session_id = await self.get_or_create_r_session(
+                    working_directory=working_directory
+                )
                 if session_id:
                     session_manager = get_session_manager()
                     return await session_manager.execute_in_session(
@@ -237,4 +255,15 @@ class Context:
         # Fall back to stateless execution
         from ..r_integration import execute_r_script_async
 
-        return await execute_r_script_async(script, args, self)
+        return await execute_r_script_async(
+            script, args, self, working_directory=working_directory
+        )
+
+    def get_full_filepath(self, relative_path: str, working_directory: str | None = None) -> Path:
+        """Get full file path within allowed resource mounts."""
+
+        # Determine working directory for exports as requested by the user
+        session_id: str = working_directory or self.get_r_session_id() or self.lifespan.default_r_session_id # type: ignore
+        exports_dir = Path.cwd() / "exports"
+        session_dir = exports_dir / session_id
+        return session_dir / relative_path

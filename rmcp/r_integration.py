@@ -188,27 +188,31 @@ def check_r_version() -> tuple[bool, str]:
         raise RExecutionError("R is not installed or not in PATH", "", "", None)
 
 
-def execute_r_script(script: str, args: dict[str, Any]) -> dict[str, Any]:
+def execute_r_script(
+    script: str,
+    args: dict[str, Any],
+    context: Any = None,
+    working_directory: Path | None = None,
+) -> dict[str, Any]:
     """
-    Execute an R script with arguments and return JSON results.
+    Execute R script synchronously from Python with JSON-based data exchange.
 
-    This function creates a complete R execution environment by:
-
-    1. Writing arguments to a temporary JSON file
-    2. Creating an R script that loads jsonlite and reads the arguments
-    3. Appending the user's R code
-    4. Writing results to a JSON output file
-    5. Executing R and parsing the results
-    6. Cleaning up all temporary files
+    This function provides a comprehensive execution environment:
+    - Serializes Python args to JSON for R consumption
+    - Creates temporary files for script and communication
+    - Executes R via subprocess and monitors results
+    - Deserializes R results back to Python dictionary
+    - Provides detailed error reporting and environment info on failure
 
     Args:
-        script: R code to execute. Must set a 'result' variable with output.
-            The script has access to an 'args' variable containing the arguments.
-        args: Dictionary of arguments available to R script as 'args' variable.
-            All values must be JSON-serializable.
+        script: R script code to execute. Must define a 'result' variable.
+        args: Dictionary containing arguments to pass to the R script (as 'args' variable).
+        context: Optional context for logging and session info.
+        working_directory: Optional working directory for the R process.
 
     Returns:
         Dictionary containing the R script results (contents of 'result' variable).
+            All values must be JSON-serializable.
 
     Raises:
         RExecutionError: If R script execution fails, with detailed error info
@@ -239,6 +243,24 @@ def execute_r_script(script: str, args: dict[str, Any]) -> dict[str, Any]:
         >>> data = {"data": {"x": [1,2,3,4], "y": [2,4,6,8]}}
         >>> reg_result = execute_r_script(r_code, data)
     """
+    # Automatically determine working directory if context has a session ID
+    # and no specific directory was provided.
+    if working_directory is None and context is not None:
+        try:
+            get_session_id = getattr(context, "get_r_session_id", None)
+            session_id = get_session_id() if get_session_id else None
+            if not session_id:
+                session_id = "default"
+
+            if session_id:
+                exports_dir = Path.cwd() / "exports"
+                exports_dir.mkdir(exist_ok=True)
+                session_dir = exports_dir / session_id
+                session_dir.mkdir(parents=True, exist_ok=True)
+                working_directory = session_dir
+        except Exception as e:
+            logger.warning(f"Failed to auto-create export directory: {e}")
+
     with (
         tempfile.NamedTemporaryFile(suffix=".R", delete=False, mode="w") as script_file,
         tempfile.NamedTemporaryFile(
@@ -267,7 +289,11 @@ args <- fromJSON("{args_path_safe}")
 # User script
 {script}
 # Write result
-write_json(result, "{result_path_safe}", auto_unbox = TRUE)
+if (exists("result")) {{
+    write_json(result, "{result_path_safe}", auto_unbox = TRUE)
+}} else {{
+    stop("R script must define a 'result' variable")
+}}
 """
             script_file.write(full_script)
             script_file.flush()
@@ -279,6 +305,7 @@ write_json(result, "{result_path_safe}", auto_unbox = TRUE)
                 capture_output=True,
                 text=True,
                 timeout=get_config().r.timeout,
+                cwd=working_directory,
             )
             if process.returncode != 0:
                 # Enhanced error handling for missing packages
@@ -389,7 +416,7 @@ Original error: {stderr.strip()}"""
 
 
 async def execute_r_script_async(
-    script: str, args: dict[str, Any], context=None
+    script: str, args: dict[str, Any], context=None, working_directory: Path | None = None
 ) -> dict[str, Any]:
     """
     Execute R script asynchronously with proper cancellation support and concurrency control.
@@ -411,6 +438,26 @@ async def execute_r_script_async(
     """
     async with R_SEMAPHORE:  # Limit concurrent R processes
         start_time = time.time()
+
+        # Automatically determine working directory if context has a session ID
+        # and no specific directory was provided. This ensures exports go to
+        # session-specific folders as requested by the user.
+        if working_directory is None and context is not None:
+            try:
+                get_session_id = getattr(context, "get_r_session_id", None)
+                session_id = get_session_id() if get_session_id else "default"
+                if not session_id:
+                    session_id = "default"
+
+                if session_id:
+                    exports_dir = Path.cwd() / "exports"
+                    exports_dir.mkdir(exist_ok=True)
+                    session_dir = exports_dir / session_id
+                    session_dir.mkdir(parents=True, exist_ok=True)
+                    working_directory = session_dir
+            except Exception as e:
+                logger.warning(f"Failed to auto-create export directory: {e}")
+
         # Create temporary files for script, arguments, and results
         with (
             tempfile.NamedTemporaryFile(
@@ -476,6 +523,7 @@ if (exists("result")) {{
                     f"--file={script_path}",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    cwd=working_directory,
                 )
                 try:
                     # Monitor stderr for progress messages and collect output
@@ -839,9 +887,11 @@ def get_r_image_encoder_script() -> str:
 def execute_r_script_with_image(
     script: str,
     args: dict[str, Any],
+    context: Any = None,
     include_image: bool = True,
     image_width: int = 800,
     image_height: int = 600,
+    working_directory: Path | None = None,
 ) -> dict[str, Any]:
     """
     Execute R script and optionally include base64-encoded image data.
@@ -870,22 +920,31 @@ def execute_r_script_with_image(
             }
         )
         # Execute the enhanced script
-        result = execute_r_script(enhanced_script, enhanced_args)
+        result = execute_r_script(
+            enhanced_script,
+            enhanced_args,
+            context=context,
+            working_directory=working_directory,
+        )
         # Check if the script included image data
         if isinstance(result, dict) and result.get("image_data"):
             result["image_mime_type"] = "image/png"
         return result
     else:
         # Standard execution without image support
-        return execute_r_script(script, args)
+        return execute_r_script(
+            script, args, context=context, working_directory=working_directory
+        )
 
 
 async def execute_r_script_with_image_async(
     script: str,
     args: dict[str, Any],
+    context: Any = None,
     include_image: bool = True,
     image_width: int = 800,
     image_height: int = 600,
+    working_directory: Path | None = None,
 ) -> dict[str, Any]:
     """
     Execute R script asynchronously and optionally include base64-encoded image data.
@@ -895,9 +954,11 @@ async def execute_r_script_with_image_async(
     Args:
         script: R script code to execute
         args: Arguments to pass to R script
+        context: Optional context for progress reporting and logging
         include_image: Whether to attempt image capture and encoding
         image_width: Width of captured image in pixels
         image_height: Height of captured image in pixels
+        working_directory: Optional working directory for R process
     Returns:
         Dict containing R script results, optionally with image_data and image_mime_type
     """
@@ -914,14 +975,21 @@ async def execute_r_script_with_image_async(
             }
         )
         # Execute the enhanced script asynchronously
-        result = await execute_r_script_async(enhanced_script, enhanced_args)
+        result = await execute_r_script_async(
+            enhanced_script,
+            enhanced_args,
+            context=context,
+            working_directory=working_directory,
+        )
         # Check if the script included image data
         if isinstance(result, dict) and result.get("image_data"):
             result["image_mime_type"] = "image/png"
         return result
     else:
         # Standard execution without image support
-        return await execute_r_script_async(script, args)
+        return await execute_r_script_async(
+            script, args, context=context, working_directory=working_directory
+        )
 
 
 def diagnose_r_installation() -> dict[str, Any]:

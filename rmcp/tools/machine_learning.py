@@ -120,7 +120,7 @@ async def kmeans_clustering(context, params) -> dict[str, Any]:
 
     r_script = get_r_script("machine_learning", "kmeans_clustering")
     try:
-        result = await execute_r_script_async(r_script, params, context)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("K-means clustering completed successfully")
         return result
     except Exception as e:
@@ -233,7 +233,7 @@ async def decision_tree(context, params) -> dict[str, Any]:
 
     r_script = get_r_script("machine_learning", "decision_tree")
     try:
-        result = await execute_r_script_async(r_script, params, context)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("Decision tree built successfully")
         return result
     except Exception as e:
@@ -352,7 +352,7 @@ async def random_forest(context, params) -> dict[str, Any]:
 
     r_script = get_r_script("machine_learning", "random_forest")
     try:
-        result = await execute_r_script_async(r_script, params, context)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("Random Forest model built successfully")
         return result
     except Exception as e:

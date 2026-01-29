@@ -103,6 +103,7 @@ async def scatter_plot(context, params) -> dict[str, Any]:
         result = await execute_r_script_with_image_async(
             r_script,
             params,
+            context=context,
             include_image=return_image,
             image_width=width,
             image_height=height,
@@ -208,6 +209,7 @@ async def histogram(context, params) -> dict[str, Any]:
         result = await execute_r_script_with_image_async(
             r_script,
             params,
+            context=context,
             include_image=return_image,
             image_width=width,
             image_height=height,
@@ -331,6 +333,7 @@ async def boxplot(context, params) -> dict[str, Any]:
         result = await execute_r_script_with_image_async(
             r_script,
             params,
+            context=context,
             include_image=return_image,
             image_width=width,
             image_height=height,
@@ -473,6 +476,7 @@ async def time_series_plot(context, params) -> dict[str, Any]:
         result = await execute_r_script_with_image_async(
             r_script,
             params,
+            context=context,
             include_image=return_image,
             image_width=width,
             image_height=height,
@@ -579,6 +583,7 @@ async def correlation_heatmap(context, params) -> dict[str, Any]:
         result = await execute_r_script_with_image_async(
             r_script,
             params,
+            context=context,
             include_image=return_image,
             image_width=width,
             image_height=height,
@@ -727,6 +732,7 @@ async def regression_plot(context, params) -> dict[str, Any]:
         result = await execute_r_script_with_image_async(
             r_script,
             params,
+            context=context,
             include_image=return_image,
             image_width=width,
             image_height=height,

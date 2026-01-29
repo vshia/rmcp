@@ -659,6 +659,7 @@ def _register_builtin_tools(server):
         write_csv,
         write_excel,
         write_json,
+        upload_file_to_cloud,
     )
     from .tools.flexible_r import execute_r_analysis, list_allowed_r_packages
     from .tools.formula_builder import build_formula, validate_formula
@@ -723,6 +724,7 @@ def _register_builtin_tools(server):
         write_excel,
         read_json,
         write_json,
+        upload_file_to_cloud,
         # Econometrics
         panel_regression,
         instrumental_variables,

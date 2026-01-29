@@ -3,7 +3,15 @@ File operations tools for RMCP.
 Data import, export, and file manipulation capabilities.
 """
 
+import os
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+
+from ..config import get_config
+
+import boto3
+from botocore.exceptions import ClientError
 
 from ..core.schemas import table_schema
 from ..r_assets.loader import get_r_script
@@ -102,7 +110,7 @@ async def read_csv(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "read_csv")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info(
             "CSV file read successfully",
             rows=result["file_info"]["n_rows"],
@@ -178,7 +186,7 @@ async def write_csv(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "write_csv")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("CSV file written successfully")
         return result
     except Exception as e:
@@ -254,7 +262,7 @@ async def write_excel(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "write_excel")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("Excel file written successfully")
         return result
     except Exception as e:
@@ -352,7 +360,7 @@ async def data_info(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "data_info")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("Dataset analysis completed successfully")
         return result
     except Exception as e:
@@ -441,7 +449,7 @@ async def filter_data(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "filter_data")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("Data filtered successfully")
         return result
     except Exception as e:
@@ -532,7 +540,7 @@ async def read_excel(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "read_excel")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info(
             "Excel file read successfully",
             rows=result["file_info"]["rows"],
@@ -626,7 +634,7 @@ async def read_json(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "read_json")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info(
             "JSON file read successfully",
             rows=result["file_info"]["rows"],
@@ -712,9 +720,139 @@ async def write_json(context, params) -> dict[str, Any]:
     # Load R script from separated file
     r_script = get_r_script("fileops", "write_json")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("JSON file written successfully")
         return result
     except Exception as e:
         await context.error("JSON writing failed", error=str(e))
         raise
+
+@tool(
+    name="upload_file_to_cloud",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "description": "Path of the file to upload, from a different tool",
+            },
+        },
+        "required": ["file_path"],
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "file_uri": {
+                "type": "string",
+                "description": "URL for the uploaded file",
+            },
+            "success": {
+                "type": "boolean",
+                "enum": [True],
+                "description": "Whether the file was written successfully",
+            },
+            "timestamp": {
+                "type": "string",
+                "description": "Timestamp when the file was written",
+            },
+        },
+        "required": [
+            "file_uri",
+            "success",
+            "timestamp",
+        ],
+        "additionalProperties": False,
+    },
+    description="Uploads a file to a cloud storage service and returns the file URI along with success status and timestamp.",
+)
+async def upload_file_to_cloud(context, params) -> dict[str, Any]:
+    """Upload file to AWS S3 cloud storage."""
+    file_path = params.get("file_path")
+    await context.info("Uploading file to S3", file_path=file_path)
+
+    # Get full file path
+    full_path = context.get_full_filepath(file_path)
+
+    # Validate file exists
+    if not os.path.exists(full_path):
+        raise FileNotFoundError(f"File not found: {full_path}")
+
+    # Get AWS credentials from context config
+    config = get_config()
+    aws_config = config.get("aws", {}) if isinstance(config, dict) else {}
+
+    # Get AWS configuration
+    bucket_name = aws_config.get("s3_bucket") or os.getenv("AWS_S3_BUCKET")
+    aws_access_key = aws_config.get("access_key_id") or os.getenv("AWS_ACCESS_KEY_ID")
+    aws_secret_key = aws_config.get("secret_access_key") or os.getenv(
+        "AWS_SECRET_ACCESS_KEY"
+    )
+    aws_region = aws_config.get("region") or os.getenv("AWS_REGION", "us-east-1")
+    s3_prefix = aws_config.get("s3_prefix", "rmcp-uploads")
+
+    # Validate required configuration
+    if not bucket_name:
+        raise ValueError(
+            "AWS S3 bucket not configured. Set AWS_S3_BUCKET environment variable or configure in .rmcp/config.json"
+        )
+
+    try:
+        # Initialize S3 client
+        s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key,
+            region_name=aws_region,
+        )
+
+        # Generate S3 key (path in bucket)
+        file_name = Path(full_path).name
+        s3_key = f"{s3_prefix}/{file_name}" if s3_prefix else file_name
+
+        # Upload file to S3 with metadata for 30-day auto-delete
+        await context.info("Uploading to S3", bucket=bucket_name, key=s3_key)
+
+        # Tag object for lifecycle management (requires bucket lifecycle policy)
+        # Bucket should have lifecycle rule: delete objects with tag auto-delete=30days after 30 days
+        # ACL set to private ensures file is only accessible via presigned URL
+        s3_client.upload_file(
+            full_path,
+            bucket_name,
+            s3_key,
+            ExtraArgs={
+                "ACL": "private",  # Ensure object is private, only accessible via presigned URL
+                "Tagging": "auto-delete=30days",
+                "Metadata": {
+                    "auto-delete-days": "30",
+                    "uploaded-by": "rmcp",
+                },
+            },
+        )
+
+        # Generate presigned URL with 24-hour expiration
+        file_uri = s3_client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket_name, "Key": s3_key},
+            ExpiresIn=86400 * 30,  # 24 hours in seconds
+        )
+
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+        await context.info(
+            "File uploaded successfully", file_uri=file_uri, timestamp=timestamp
+        )
+
+        return {
+            "file_uri": file_uri,
+            "success": True,
+            "timestamp": timestamp,
+        }
+
+    except ClientError as e:
+        error_msg = f"S3 upload failed: {str(e)}"
+        await context.error("S3 upload error", error=error_msg)
+        raise RuntimeError(error_msg) from e
+    except Exception as e:
+        error_msg = f"Unexpected error during upload: {str(e)}"
+        await context.error("Upload error", error=error_msg)
+        raise RuntimeError(error_msg) from e

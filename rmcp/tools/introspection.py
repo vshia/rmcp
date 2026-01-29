@@ -559,7 +559,7 @@ async def get_r_session_info(
             session_manager = get_session_manager()
 
             rmcp_session_info = await session_manager.get_session_info(
-                session_id or context.get_r_session_id() or "default"
+                session_id or context.get_r_session_id()
             )
 
             if rmcp_session_info:

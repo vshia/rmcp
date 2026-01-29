@@ -811,6 +811,7 @@ All tools provide professionally formatted output with markdown tables, statisti
         """
         method = request.get("method")
         request_id = request.get("id")
+        mcp_session_id = request.get("mcp_session_id")
         params = request.get("params", {})
         if not isinstance(params, dict):
             params = {}
@@ -833,6 +834,7 @@ All tools provide professionally formatted output with markdown tables, statisti
             metadata = {}
             if tool_invocation_id:
                 metadata["toolInvocationId"] = tool_invocation_id
+            metadata["mcp_session_id"] = mcp_session_id
             context = self.create_context(
                 request_id,
                 method,

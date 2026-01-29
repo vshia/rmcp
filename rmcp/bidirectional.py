@@ -405,7 +405,7 @@ async def setup_r_bidirectional(
     This tool prepares an R session to enable callbacks to Python MCP tools,
     allowing for complex interactive analytical workflows.
     """
-    session_id = params.get("session_id")
+    session_id = params.get("session_id") or params.get("mcp_session_id")
     allowed_tools = params.get("allowed_tools", [])
 
     try:

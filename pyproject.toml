@@ -28,6 +28,7 @@ dependencies = [
     "jsonschema>=4.0.0",   # Schema validation
     "psutil>=5.0.0",       # R process management
     "structlog>=23.1.0",   # Structured logging for MCP observability
+    "boto3>=1.26.0",       # AWS S3 integration for cloud storage
     # subprocess module is built-in for Python 3.8+
 ]
 

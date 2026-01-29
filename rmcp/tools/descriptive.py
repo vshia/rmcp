@@ -83,7 +83,7 @@ async def summary_stats(context, params) -> dict[str, Any]:
 
     r_script = get_r_script("descriptive", "summary_stats")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("Summary statistics computed successfully")
         return result
     except Exception as e:
@@ -171,7 +171,7 @@ async def outlier_detection(context, params) -> dict[str, Any]:
 
     r_script = get_r_script("descriptive", "outlier_detection")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("Outlier detection completed successfully")
         return result
     except Exception as e:
@@ -261,7 +261,7 @@ async def frequency_table(context, params) -> dict[str, Any]:
 
     r_script = get_r_script("descriptive", "frequency_table")
     try:
-        result = await execute_r_script_async(r_script, params)
+        result = await execute_r_script_async(r_script, params, context=context)
         await context.info("Frequency tables created successfully")
         return result
     except Exception as e:
