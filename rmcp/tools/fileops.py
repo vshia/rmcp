@@ -766,61 +766,92 @@ async def write_json(context, params) -> dict[str, Any]:
     description="Uploads a file to a cloud storage service and returns the file URI along with success status and timestamp.",
 )
 async def upload_file_to_cloud(context, params) -> dict[str, Any]:
-    """Upload file to AWS S3 cloud storage."""
+    """
+    Upload file to AWS S3 cloud storage with session-based organization.
+
+    Files are uploaded with:
+    - 30-day auto-delete tags (requires bucket lifecycle policy)
+    - 24-hour presigned URL for secure access
+    - Session ID organization (rmcp-uploads/{session_id}/{filename})
+    - Private access (bucket-level permissions only)
+    """
     file_path = params.get("file_path")
     await context.info("Uploading file to S3", file_path=file_path)
 
-    # Get full file path
+    # Get full file path and validate existence
     full_path = context.get_full_filepath(file_path)
-
-    # Validate file exists
     if not os.path.exists(full_path):
         raise FileNotFoundError(f"File not found: {full_path}")
 
-    # Get AWS credentials from context config
+    # Load AWS configuration from config file and environment variables
+    # Priority: config file > environment variables > defaults
     config = get_config()
     aws_config = config.get("aws", {}) if isinstance(config, dict) else {}
 
-    # Get AWS configuration
     bucket_name = aws_config.get("s3_bucket") or os.getenv("AWS_S3_BUCKET")
     aws_access_key = aws_config.get("access_key_id") or os.getenv("AWS_ACCESS_KEY_ID")
     aws_secret_key = aws_config.get("secret_access_key") or os.getenv(
         "AWS_SECRET_ACCESS_KEY"
     )
-    aws_region = aws_config.get("region") or os.getenv("AWS_REGION", "us-east-1")
+    aws_session_token = aws_config.get("session_token") or os.getenv("AWS_SESSION_TOKEN")
+    aws_region = aws_config.get("region") or os.getenv("AWS_REGION", "us-west-2")
     s3_prefix = aws_config.get("s3_prefix", "rmcp-uploads")
 
-    # Validate required configuration
     if not bucket_name:
         raise ValueError(
-            "AWS S3 bucket not configured. Set AWS_S3_BUCKET environment variable or configure in .rmcp/config.json"
+            "AWS S3 bucket not configured. Set AWS_S3_BUCKET environment variable or add to .rmcp/config.json"
         )
 
     try:
-        # Initialize S3 client
-        s3_client = boto3.client(
-            "s3",
-            aws_access_key_id=aws_access_key,
-            aws_secret_access_key=aws_secret_key,
-            region_name=aws_region,
+        # Initialize S3 client with credentials
+        # Falls back to boto3 default credential chain if not explicitly provided
+        s3_client_kwargs = {"region_name": aws_region}
+
+        if aws_access_key and aws_secret_key:
+            s3_client_kwargs["aws_access_key_id"] = aws_access_key
+            s3_client_kwargs["aws_secret_access_key"] = aws_secret_key
+
+            # Include session token if provided (required for MFA-enabled accounts)
+            if aws_session_token:
+                s3_client_kwargs["aws_session_token"] = aws_session_token
+
+        s3_client = boto3.client("s3", **s3_client_kwargs)
+
+        # Extract session ID from file path for organized S3 storage
+        # RMCP files are stored in: exports/{session_id}/filename.ext
+        path_parts = Path(full_path).parts
+        session_id = None
+
+        if "exports" in path_parts:
+            exports_index = path_parts.index("exports")
+            if exports_index + 1 < len(path_parts):
+                session_id = path_parts[exports_index + 1]
+
+        # Generate S3 key: {s3_prefix}/{session_id}/{filename}
+        # Example: rmcp-uploads/abc-123-def/chart.png
+        file_name = Path(full_path).name
+        if session_id:
+            s3_key = f"{s3_prefix}/{session_id}/{file_name}" if s3_prefix else f"{session_id}/{file_name}"
+        else:
+            s3_key = f"{s3_prefix}/{file_name}" if s3_prefix else file_name
+
+        # Upload to S3 with metadata and tags
+        await context.info(
+            "Uploading to S3",
+            bucket=bucket_name,
+            key=s3_key,
+            session_id=session_id if session_id else "none",
         )
 
-        # Generate S3 key (path in bucket)
-        file_name = Path(full_path).name
-        s3_key = f"{s3_prefix}/{file_name}" if s3_prefix else file_name
-
-        # Upload file to S3 with metadata for 30-day auto-delete
-        await context.info("Uploading to S3", bucket=bucket_name, key=s3_key)
-
-        # Tag object for lifecycle management (requires bucket lifecycle policy)
-        # Bucket should have lifecycle rule: delete objects with tag auto-delete=30days after 30 days
-        # ACL set to private ensures file is only accessible via presigned URL
+        # Upload with lifecycle management tags (requires bucket lifecycle policy configured)
+        # Bucket lifecycle rule should delete objects with tag "auto-delete=30days" after 30 days
+        # Note: ACL not set - modern S3 buckets have ACLs disabled (Bucket Owner Enforced mode)
+        #       Privacy is enforced by bucket-level Block Public Access settings
         s3_client.upload_file(
             full_path,
             bucket_name,
             s3_key,
             ExtraArgs={
-                "ACL": "private",  # Ensure object is private, only accessible via presigned URL
                 "Tagging": "auto-delete=30days",
                 "Metadata": {
                     "auto-delete-days": "30",
@@ -829,7 +860,7 @@ async def upload_file_to_cloud(context, params) -> dict[str, Any]:
             },
         )
 
-        # Generate presigned URL with 24-hour expiration
+        # Generate presigned URL with 24-hour expiration for secure, time-limited access
         file_uri = s3_client.generate_presigned_url(
             "get_object",
             Params={"Bucket": bucket_name, "Key": s3_key},
