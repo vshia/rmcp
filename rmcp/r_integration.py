@@ -496,7 +496,6 @@ async def execute_r_script_async(
                     # to ensure we don't return stale results.
                     persistence_before = (
                         'if (file.exists(".RData")) { load(".RData", envir = .GlobalEnv) }\n'
-                        'if (exists("result", envir = .GlobalEnv)) { rm(result, envir = .GlobalEnv) }\n'
                     )
                     # Save workspace after script execution (but before writing results)
                     persistence_after = 'save.image(".RData")\n'
