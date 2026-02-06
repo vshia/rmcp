@@ -121,7 +121,8 @@ async def suggest_fix(context, params) -> dict[str, Any]:
             "Verify spelling of variable names (R is case-sensitive)",
         ]
         # Detect special characters or spaces in the missing object name
-        match = re.search(r"object ['\"]([^'\"]+)['\"] not found", error_message.lower())
+        # Use IGNORECASE and search original message to preserve variable name case
+        match = re.search(r"object ['\"]([^'\"]+)['\"] not found", error_message, re.IGNORECASE)
         if match:
             obj_name = match.group(1)
             if re.search(r"[^a-zA-Z0-9._]", obj_name):

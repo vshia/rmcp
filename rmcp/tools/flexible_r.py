@@ -156,7 +156,7 @@ def rewrite_file_paths_to_exports(context, r_code: str) -> str:
         (r'write\.table\s*\([^,]+,\s*file\s*=\s*(["\'])([^"\']+)\1', 'write.table'),
         # write.xlsx
         (r'write\.xlsx\s*\([^,]+,\s*(["\'])([^"\']+)\1', 'write.xlsx'),
-        (r'write\.xlsx\s*\([^,]+,\s*file\s*=\s*(["\')([^"\']+)\1', 'write.xlsx'),
+        (r'write\.xlsx\s*\([^,]+,\s*file\s*=\s*(["\'])([^"\']+)\1', 'write.xlsx'),
         # saveRDS
         (r'saveRDS\s*\([^,]+,\s*(["\'])([^"\']+)\1', 'saveRDS'),
         (r'saveRDS\s*\([^,]+,\s*file\s*=\s*(["\'])([^"\']+)\1', 'saveRDS'),
