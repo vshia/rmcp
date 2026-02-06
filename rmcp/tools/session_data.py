@@ -50,6 +50,9 @@ def add_data_name_param(schema: dict[str, Any], data_param: str = "data") -> dic
     }
 
     # Remove data from required if present (make it optional)
+    # Note: Validation that either data or data_name is provided happens at runtime
+    # in the R code (resolve_session_data function) because LLM APIs don't support
+    # anyOf/oneOf at the top level of function parameter schemas.
     if "required" in new_schema and data_param in new_schema["required"]:
         new_schema["required"] = [r for r in new_schema["required"] if r != data_param]
         # If required becomes empty, remove it
@@ -118,6 +121,9 @@ def add_data_name_param_timeseries(schema: dict[str, Any]) -> dict[str, Any]:
     }
 
     # Remove data from required if present
+    # Note: Validation that either data or data_name is provided happens at runtime
+    # in the R code (resolve_timeseries_data function) because LLM APIs don't support
+    # anyOf/oneOf at the top level of function parameter schemas.
     if "required" in new_schema and "data" in new_schema["required"]:
         new_schema["required"] = [r for r in new_schema["required"] if r != "data"]
         if not new_schema["required"]:
@@ -131,10 +137,50 @@ DATA_RESOLUTION_PREAMBLE = '''
 # === SESSION DATA RESOLUTION ===
 # Resolve data from either inline args$data or workspace reference args$data_name
 
+# Helper function to convert row-oriented data to data frame
+# Row-oriented: [{col1: val1, col2: val1}, {col1: val2, col2: val2}]
+# Column-oriented: {col1: [val1, val2], col2: [val1, val2]}
+convert_to_dataframe <- function(data) {
+    if (is.data.frame(data)) {
+        return(data)
+    }
+
+    if (is.matrix(data)) {
+        return(as.data.frame(data))
+    }
+
+    if (is.list(data)) {
+        # Check if it's row-oriented (list of named lists/vectors)
+        # Row-oriented: each element is a row with named columns
+        if (length(data) > 0 && is.list(data[[1]]) && !is.null(names(data[[1]]))) {
+            # Row-oriented data - convert to data frame
+            df <- do.call(rbind, lapply(data, function(row) {
+                as.data.frame(row, stringsAsFactors = FALSE)
+            }))
+            return(df)
+        }
+
+        # Check if it's column-oriented (named list of vectors)
+        if (!is.null(names(data)) && all(sapply(data, function(x) is.atomic(x) || is.null(x)))) {
+            # Column-oriented data
+            return(as.data.frame(data, stringsAsFactors = FALSE))
+        }
+
+        # Try generic conversion
+        return(as.data.frame(data, stringsAsFactors = FALSE))
+    }
+
+    stop(paste0(
+        "Cannot convert data to data frame. ",
+        "Expected column-oriented ({col: [values]}) or row-oriented ([{col: value}]) format. ",
+        "Got: ", paste(class(data), collapse = ", ")
+    ))
+}
+
 resolve_session_data <- function(args, data_param = "data") {
     # Check if data was passed inline
     if (!is.null(args[[data_param]]) && length(args[[data_param]]) > 0) {
-        data <- as.data.frame(args[[data_param]])
+        data <- convert_to_dataframe(args[[data_param]])
         attr(data, "source") <- "inline"
         return(data)
     }
@@ -152,23 +198,8 @@ resolve_session_data <- function(args, data_param = "data") {
             ))
         }
 
-        # Get the object
-        data <- get(data_name, envir = .GlobalEnv)
-
-        # Convert to data frame if needed
-        if (!is.data.frame(data)) {
-            if (is.matrix(data)) {
-                data <- as.data.frame(data)
-            } else if (is.list(data)) {
-                data <- as.data.frame(data)
-            } else {
-                stop(paste0(
-                    "Object '", data_name, "' is not a data frame or convertible type.\\n",
-                    "Object class: ", paste(class(data), collapse = ", ")
-                ))
-            }
-        }
-
+        # Get the object and convert to data frame
+        data <- convert_to_dataframe(get(data_name, envir = .GlobalEnv))
         attr(data, "source") <- paste0("workspace:", data_name)
         return(data)
     }

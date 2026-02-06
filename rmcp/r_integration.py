@@ -484,21 +484,25 @@ async def execute_r_script_async(
                     try:
                         get_session_id = getattr(context, "get_r_session_id", None)
                         session_id = get_session_id() if get_session_id else None
-                    except Exception:
-                        pass
-                
+                    except Exception as e:
+                        logger.debug(f"Failed to get R session ID: {e}")
+
                 persistence_before = ""
                 persistence_after = ""
                 enabled = getattr(context.lifespan, "r_session_enabled", False) if context else False
                 if session_id and context and enabled:
-                    # Load existing workspace if it exists
-                    # Also remove the 'result' variable if it was loaded from workspace
-                    # to ensure we don't return stale results.
+                    # Load existing workspace if it exists, then remove 'result' variable
+                    # to ensure we don't return stale results from previous script runs.
                     persistence_before = (
-                        'if (file.exists(".RData")) { load(".RData", envir = .GlobalEnv) }\n'
+                        'if (file.exists(".RData")) { load(".RData", envir = .GlobalEnv); '
+                        'if (exists("result", envir = .GlobalEnv)) rm(result, envir = .GlobalEnv) }\n'
                     )
-                    # Save workspace after script execution (but before writing results)
-                    persistence_after = 'save.image(".RData")\n'
+                    # Save workspace after script execution using atomic write pattern
+                    # (write to temp file, then rename) to prevent corruption from race conditions
+                    persistence_after = (
+                        '.rmcp_temp <- tempfile(pattern = ".RData_", tmpdir = ".", fileext = ".tmp"); '
+                        'save.image(.rmcp_temp); file.rename(.rmcp_temp, ".RData")\n'
+                    )
 
                 # Create complete R script with progress reporting
                 full_script = f"""
@@ -576,8 +580,6 @@ if (exists("result")) {{
                             if line_str.startswith("RMCP_PROGRESS:"):
                                 if context:
                                     try:
-                                        import json
-
                                         progress_json = line_str[
                                             14:
                                         ]  # Remove "RMCP_PROGRESS:" prefix

@@ -42,23 +42,27 @@ def validate_schema(data: Any, schema: dict[str, Any], context: str = "") -> Non
 
 # Common schema patterns for statistical tools
 def table_schema(required_columns: list[str] | None = None) -> dict[str, Any]:
-    """Schema for tabular data (dict with column arrays)."""
+    """Schema for tabular data.
+
+    Accepts two formats:
+    - Column-oriented (object): {"col1": [val1, val2, ...], "col2": [val1, val2, ...]}
+    - Row-oriented (array): [{"col1": val1, "col2": val1}, {"col1": val2, "col2": val2}]
+
+    The R scripts will convert row-oriented data to column-oriented internally.
+    """
+    # Accept both object (column-oriented) and array (row-oriented) formats
+    # We can't use oneOf/anyOf at top level due to LLM API restrictions
+    # When type includes "array", we must provide "items" schema
     schema: dict[str, Any] = {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": {
-            "type": "array",
-            "items": {"type": ["number", "string", "null"]},
-        },
+        "type": ["object", "array"],
+        "items": {"type": "object"},  # For row-oriented: each item is a row object
+        "description": (
+            "Tabular data in either column-oriented format "
+            "({col: [values...]}) or row-oriented format ([{col: value}...])"
+        ),
     }
-    if required_columns:
-        schema["required"] = required_columns
-        properties = schema["properties"]
-        for col in required_columns:
-            properties[col] = {
-                "type": "array",
-                "items": {"type": ["number", "string", "null"]},
-            }
+    # Note: required_columns validation happens at runtime in R
+    # since we now accept two different formats
     return schema
 
 
