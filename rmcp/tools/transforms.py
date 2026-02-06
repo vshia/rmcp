@@ -60,7 +60,7 @@ from .session_data import add_data_name_param, add_output_data_name_param
         "required": ["data", "variables_created", "n_obs", "operation"],
         "additionalProperties": False,
     },
-    description="Creates lagged (past values) and lead (future values) variables for time series analysis and panel data. Supports multiple lags/leads simultaneously and handles missing values appropriately. Essential for autoregressive models, studying temporal dependencies, creating predictor variables from time series, or analyzing causality relationships. Use for ARIMA preprocessing, econometric modeling, or feature engineering in time-dependent data.",
+    description="Creates lagged (past) and lead (future) variables. Use 'data_name' to reference data already in the R workspace instead of passing raw data. Use 'output_data_name' to save the transformed result for subsequent tool calls. Essential for ARIMA preprocessing, autoregressive models, and feature engineering in time-dependent data.",
 )
 async def lag_lead(context, params) -> dict[str, Any]:
     """Create lagged and lead variables."""

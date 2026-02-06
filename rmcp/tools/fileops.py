@@ -106,7 +106,7 @@ from .session_data import add_data_name_param, add_output_data_name_param
         "required": ["data", "file_info", "parsing_info", "summary"],
         "additionalProperties": False,
     },
-    description="Reads CSV (Comma-Separated Values) files with flexible parsing options including custom separators, header handling, missing value specifications, and row/column selection. Automatically detects data types and handles various CSV formats. Use for importing datasets, loading experimental data, processing survey results, or reading any tabular data stored in CSV format. Essential first step in most data analysis workflows.",
+    description="Reads CSV files with flexible parsing options. Use 'output_data_name' to save the loaded data to the R workspace for use in subsequent tool calls (e.g., output_data_name='my_data'). Later tools can then reference this data via 'data_name' instead of passing raw data. Supports custom separators, header handling, missing value specifications, and row/column selection.",
 )
 async def read_csv(context, params) -> dict[str, Any]:
     """Read CSV file and return data."""
@@ -536,7 +536,7 @@ async def filter_data(context, params) -> dict[str, Any]:
         "required": ["data", "file_info", "summary"],
         "additionalProperties": False,
     },
-    description="Reads Excel files (.xlsx, .xls) with flexible options for sheet selection, cell ranges, header detection, and data type specification. Handles multiple worksheets and complex Excel formatting. Use for importing business data, reading formatted reports, processing multi-sheet workbooks, or accessing data stored in Excel's native format with preserving original structure.",
+    description="Reads Excel files (.xlsx, .xls). Use 'output_data_name' to save the loaded data to the R workspace for use in subsequent tool calls. Later tools can reference this data via 'data_name' instead of passing raw data. Supports sheet selection, cell ranges, and header detection.",
 )
 async def read_excel(context, params) -> dict[str, Any]:
     """Read Excel file and return data."""
@@ -630,7 +630,7 @@ async def read_excel(context, params) -> dict[str, Any]:
         "required": ["data", "file_info", "summary"],
         "additionalProperties": False,
     },
-    description="Reads JSON files and intelligently converts nested structures to tabular format suitable for statistical analysis. Handles nested objects, arrays, and mixed data types with flexible flattening options. Use for importing API responses, web scraping results, NoSQL database exports, or any hierarchical data that needs conversion to rectangular format for analysis.",
+    description="Reads JSON files and converts nested structures to tabular format. Use 'output_data_name' to save the loaded data to the R workspace for use in subsequent tool calls. Later tools can reference this data via 'data_name' instead of passing raw data. Handles nested objects, arrays, and mixed data types.",
 )
 async def read_json(context, params) -> dict[str, Any]:
     """Read JSON file and return data."""

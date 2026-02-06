@@ -118,7 +118,7 @@ from .session_data import add_data_name_param
         "required": ["coefficients", "r_squared", "n_obs", "method"],
         "additionalProperties": False,
     },
-    description="Performs ordinary least squares (OLS) linear regression to model relationships between a dependent variable and one or more predictors. Returns coefficients with standard errors, confidence intervals, R-squared, F-statistic, and comprehensive diagnostic statistics including residuals and fitted values. Use for prediction, inference, understanding linear relationships, or testing hypotheses about continuous outcomes. Handles missing values and supports weighted observations.",
+    description="Performs OLS linear regression. Use 'data_name' to reference data already in the R workspace instead of passing raw data. Returns coefficients, R-squared, F-statistic, and diagnostics. Handles missing values and supports weighted observations.",
 )
 async def linear_model(context, params) -> dict[str, Any]:
     """
