@@ -293,6 +293,7 @@ class ConfigLoader:
                 performance=performance_config,
                 logging=logging_config,
                 debug=config_dict.get("debug", False),
+                aws=config_dict.get("aws", {}),
             )
         except TypeError as e:
             raise ConfigError(f"Failed to create configuration object: {e}")

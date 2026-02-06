@@ -791,9 +791,9 @@ async def upload_file_to_cloud(context, params) -> dict[str, Any]:
     # Load AWS configuration from config file and environment variables
     # Priority: config file > environment variables > defaults
     config = get_config()
-    aws_config = config.get("aws", {}) if isinstance(config, dict) else {}
+    aws_config = config.aws or {}
 
-    bucket_name = aws_config.get("s3_bucket") or os.getenv("AWS_S3_BUCKET") or "logista-ai-test"
+    bucket_name = aws_config.get("s3_bucket") or os.getenv("AWS_S3_BUCKET")
     aws_access_key = aws_config.get("access_key_id") or os.getenv("AWS_ACCESS_KEY_ID")
     aws_secret_key = aws_config.get("secret_access_key") or os.getenv(
         "AWS_SECRET_ACCESS_KEY"

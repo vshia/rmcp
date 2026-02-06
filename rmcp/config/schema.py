@@ -176,6 +176,43 @@ CONFIG_SCHEMA: dict[str, Any] = {
             "description": "Enable debug mode",
             "default": False,
         },
+        "aws": {
+            "type": "object",
+            "description": "AWS configuration for S3 uploads and cloud storage",
+            "properties": {
+                "s3_bucket": {
+                    "type": ["string", "null"],
+                    "description": "S3 bucket name for file uploads",
+                    "default": None,
+                },
+                "access_key_id": {
+                    "type": ["string", "null"],
+                    "description": "AWS access key ID (optional, uses boto3 credential chain if not set)",
+                    "default": None,
+                },
+                "secret_access_key": {
+                    "type": ["string", "null"],
+                    "description": "AWS secret access key (optional, uses boto3 credential chain if not set)",
+                    "default": None,
+                },
+                "session_token": {
+                    "type": ["string", "null"],
+                    "description": "AWS session token for temporary credentials",
+                    "default": None,
+                },
+                "region": {
+                    "type": "string",
+                    "description": "AWS region for S3 operations",
+                    "default": "us-west-2",
+                },
+                "s3_prefix": {
+                    "type": "string",
+                    "description": "S3 key prefix for uploaded files",
+                    "default": "rmcp-uploads",
+                },
+            },
+            "additionalProperties": True,
+        },
     },
     "additionalProperties": False,
 }
