@@ -21,12 +21,12 @@ from ..core.schemas import table_schema
 from ..r_assets.loader import get_r_script
 from ..r_integration import execute_r_script_async
 from ..registries.tools import tool
-from .session_data import add_data_name_param
+from .session_data import add_data_name_param, add_output_data_name_param
 
 
 @tool(
     name="read_csv",
-    input_schema={
+    input_schema=add_output_data_name_param({
         "type": "object",
         "properties": {
             "file_path": {"type": "string"},
@@ -41,7 +41,7 @@ from .session_data import add_data_name_param
             "max_rows": {"type": "integer", "minimum": 1},
         },
         "required": ["file_path"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -464,7 +464,7 @@ async def filter_data(context, params) -> dict[str, Any]:
 
 @tool(
     name="read_excel",
-    input_schema={
+    input_schema=add_output_data_name_param({
         "type": "object",
         "properties": {
             "file_path": {"type": "string"},
@@ -486,7 +486,7 @@ async def filter_data(context, params) -> dict[str, Any]:
             },
         },
         "required": ["file_path"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -559,7 +559,7 @@ async def read_excel(context, params) -> dict[str, Any]:
 
 @tool(
     name="read_json",
-    input_schema={
+    input_schema=add_output_data_name_param({
         "type": "object",
         "properties": {
             "file_path": {"type": "string"},
@@ -581,7 +581,7 @@ async def read_excel(context, params) -> dict[str, Any]:
             },
         },
         "required": ["file_path"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {

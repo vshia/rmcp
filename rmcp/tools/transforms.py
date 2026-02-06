@@ -13,21 +13,23 @@ from ..core.schemas import table_schema
 from ..r_assets.loader import get_r_script
 from ..r_integration import execute_r_script_async
 from ..registries.tools import tool
-from .session_data import add_data_name_param
+from .session_data import add_data_name_param, add_output_data_name_param
 
 
 @tool(
     name="lag_lead",
-    input_schema=add_data_name_param({
-        "type": "object",
-        "properties": {
-            "data": table_schema(),
-            "variables": {"type": "array", "items": {"type": "string"}},
-            "lags": {"type": "array", "items": {"type": "integer"}},
-            "leads": {"type": "array", "items": {"type": "integer"}},
-        },
-        "required": ["data", "variables"],
-    }),
+    input_schema=add_output_data_name_param(
+        add_data_name_param({
+            "type": "object",
+            "properties": {
+                "data": table_schema(),
+                "variables": {"type": "array", "items": {"type": "string"}},
+                "lags": {"type": "array", "items": {"type": "integer"}},
+                "leads": {"type": "array", "items": {"type": "integer"}},
+            },
+            "required": ["data", "variables"],
+        })
+    ),
     output_schema={
         "type": "object",
         "properties": {
@@ -76,22 +78,24 @@ async def lag_lead(context, params) -> dict[str, Any]:
 
 @tool(
     name="winsorize",
-    input_schema=add_data_name_param({
-        "type": "object",
-        "properties": {
-            "data": table_schema(),
-            "variables": {"type": "array", "items": {"type": "string"}},
-            "percentiles": {
-                "type": "array",
-                "items": {"type": "number", "minimum": 0, "maximum": 1},
-                "minItems": 2,
-                "maxItems": 2,
-                "default": [0.05, 0.95],
-                "description": "Lower and upper percentiles for winsorization [lower, upper]",
+    input_schema=add_output_data_name_param(
+        add_data_name_param({
+            "type": "object",
+            "properties": {
+                "data": table_schema(),
+                "variables": {"type": "array", "items": {"type": "string"}},
+                "percentiles": {
+                    "type": "array",
+                    "items": {"type": "number", "minimum": 0, "maximum": 1},
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "default": [0.05, 0.95],
+                    "description": "Lower and upper percentiles for winsorization [lower, upper]",
+                },
             },
-        },
-        "required": ["data", "variables"],
-    }),
+            "required": ["data", "variables"],
+        })
+    ),
     output_schema={
         "type": "object",
         "properties": {
@@ -160,16 +164,18 @@ async def winsorize(context, params) -> dict[str, Any]:
 
 @tool(
     name="difference",
-    input_schema=add_data_name_param({
-        "type": "object",
-        "properties": {
-            "data": table_schema(),
-            "variables": {"type": "array", "items": {"type": "string"}},
-            "order": {"type": "integer", "minimum": 1, "maximum": 3, "default": 1},
-            "log_transform": {"type": "boolean", "default": False},
-        },
-        "required": ["data", "variables"],
-    }),
+    input_schema=add_output_data_name_param(
+        add_data_name_param({
+            "type": "object",
+            "properties": {
+                "data": table_schema(),
+                "variables": {"type": "array", "items": {"type": "string"}},
+                "order": {"type": "integer", "minimum": 1, "maximum": 3, "default": 1},
+                "log_transform": {"type": "boolean", "default": False},
+            },
+            "required": ["data", "variables"],
+        })
+    ),
     output_schema={
         "type": "object",
         "properties": {
@@ -229,19 +235,21 @@ async def difference(context, params) -> dict[str, Any]:
 
 @tool(
     name="standardize",
-    input_schema=add_data_name_param({
-        "type": "object",
-        "properties": {
-            "data": table_schema(),
-            "variables": {"type": "array", "items": {"type": "string"}},
-            "method": {
-                "type": "string",
-                "enum": ["z_score", "min_max", "robust"],
-                "default": "z_score",
+    input_schema=add_output_data_name_param(
+        add_data_name_param({
+            "type": "object",
+            "properties": {
+                "data": table_schema(),
+                "variables": {"type": "array", "items": {"type": "string"}},
+                "method": {
+                    "type": "string",
+                    "enum": ["z_score", "min_max", "robust"],
+                    "default": "z_score",
+                },
             },
-        },
-        "required": ["data", "variables"],
-    }),
+            "required": ["data", "variables"],
+        })
+    ),
     output_schema={
         "type": "object",
         "properties": {

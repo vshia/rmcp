@@ -153,13 +153,26 @@ resolve_timeseries_data <- function(args) {
         "Got: ", paste(class(obj), collapse = ", ")
       ))
     }
-
     attr(data, "source") <- paste0("workspace:", data_name)
     return(data)
   }
 
   # Neither provided - return NULL
   return(NULL)
+}
+
+# Persistence helper
+persist_output_data <- function(args) {
+  if (!is.null(args$output_data_name) && nchar(args$output_data_name) > 0) {
+    # Determine what to persist: result_data or data or result$data
+    if (exists("result_data")) {
+      assign(args$output_data_name, result_data, envir = .GlobalEnv)
+    } else if (exists("data")) {
+      assign(args$output_data_name, data, envir = .GlobalEnv)
+    } else if (exists("result") && !is.null(result$data)) {
+      assign(args$output_data_name, as.data.frame(result$data), envir = .GlobalEnv)
+    }
+  }
 }
 
 # Prepare data variable using session-aware resolution
@@ -185,6 +198,12 @@ if ("data" %in% names(args) || "data_name" %in% names(args)) {
 
 # === MAIN SCRIPT LOGIC ===
 {{ MAIN_SCRIPT }}
+
+# === SESSION PERSISTENCE ===
+# If output_data_name was provided, persist the result to the workspace
+if (exists("persist_output_data") && is.function(persist_output_data)) {
+  persist_output_data(args)
+}
 
 # === AUTOMATIC OUTPUT HANDLING ===
 # Output results in standard JSON format

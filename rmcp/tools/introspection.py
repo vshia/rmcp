@@ -67,7 +67,7 @@ async def list_r_objects(context: Context, params: dict[str, Any]) -> dict[str, 
     r_script = f"""
     # Set parameters
     pattern <- "{pattern}"
-    include_hidden <- {str(include_hidden).lower()}
+    include_hidden <- {str(include_hidden).upper()}
     sort_by <- "{sort_by}"
 
     # Get all objects

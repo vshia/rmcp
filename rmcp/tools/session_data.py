@@ -59,6 +59,36 @@ def add_data_name_param(schema: dict[str, Any], data_param: str = "data") -> dic
     return new_schema
 
 
+def add_output_data_name_param(schema: dict[str, Any]) -> dict[str, Any]:
+    """
+    Modify a tool's input schema to add an output_data_name parameter.
+
+    This allows the tool to save its result (data or result_data) back
+    to the R workspace under a specific name.
+
+    Args:
+        schema: The original input schema dict
+
+    Returns:
+        Modified schema with output_data_name parameter added
+    """
+    new_schema = copy.deepcopy(schema)
+
+    if "properties" not in new_schema:
+        new_schema["properties"] = {}
+
+    new_schema["properties"]["output_data_name"] = {
+        "type": "string",
+        "description": (
+            "Name to save the resulting data as in the R workspace. "
+            "If provided, the processing result will be persisted "
+            "and can be referenced in subsequent tool calls using 'data_name'."
+        ),
+    }
+
+    return new_schema
+
+
 def add_data_name_param_timeseries(schema: dict[str, Any]) -> dict[str, Any]:
     """
     Modify a timeseries tool's input schema to add a data_name parameter.
@@ -224,6 +254,20 @@ resolve_timeseries_data <- function(args) {
         "No data provided. Either pass 'data' with values/dates, ",
         "or provide 'data_name' to reference an object in the R workspace."
     ))
+}
+
+# Persistence helper
+persist_output_data <- function(args) {
+    if (!is.null(args$output_data_name) && nchar(args$output_data_name) > 0) {
+        # Determine what to persist: result_data or data or result$data
+        if (exists("result_data")) {
+            assign(args$output_data_name, result_data, envir = .GlobalEnv)
+        } else if (exists("data")) {
+            assign(args$output_data_name, data, envir = .GlobalEnv)
+        } else if (exists("result") && !is.null(result$data)) {
+            assign(args$output_data_name, as.data.frame(result$data), envir = .GlobalEnv)
+        }
+    }
 }
 # === END SESSION DATA RESOLUTION ===
 

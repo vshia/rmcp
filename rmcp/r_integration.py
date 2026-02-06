@@ -495,8 +495,8 @@ async def execute_r_script_async(
                     # Also remove the 'result' variable if it was loaded from workspace
                     # to ensure we don't return stale results.
                     persistence_before = (
-                        'if (file.exists(".RData")) { load(".RData") }\n'
-                        'if (exists("result")) { rm(result) }\n'
+                        'if (file.exists(".RData")) { load(".RData", envir = .GlobalEnv) }\n'
+                        'if (exists("result", envir = .GlobalEnv)) { rm(result, envir = .GlobalEnv) }\n'
                     )
                     # Save workspace after script execution (but before writing results)
                     persistence_after = 'save.image(".RData")\n'
@@ -574,31 +574,32 @@ if (exists("result")) {{
                             line_str = line.decode("utf-8").strip()
                             stderr_lines.append(line_str)
                             # Parse progress messages if context is available
-                            if context and line_str.startswith("RMCP_PROGRESS:"):
-                                try:
-                                    import json
+                            if line_str.startswith("RMCP_PROGRESS:"):
+                                if context:
+                                    try:
+                                        import json
 
-                                    progress_json = line_str[
-                                        14:
-                                    ]  # Remove "RMCP_PROGRESS:" prefix
-                                    progress_data = json.loads(progress_json)
-                                    if progress_data.get("type") == "progress":
-                                        message = progress_data.get(
-                                            "message", "Processing..."
-                                        )
-                                        current = progress_data.get("current")
-                                        total = progress_data.get("total")
-                                        if current is not None and total is not None:
-                                            await context.progress(
-                                                message, current, total
+                                        progress_json = line_str[
+                                            14:
+                                        ]  # Remove "RMCP_PROGRESS:" prefix
+                                        progress_data = json.loads(progress_json)
+                                        if progress_data.get("type") == "progress":
+                                            message = progress_data.get(
+                                                "message", "Processing..."
                                             )
-                                        else:
-                                            # Send as info log if no numeric progress
-                                            await context.info(f"R: {message}")
-                                except (json.JSONDecodeError, AttributeError) as e:
-                                    logger.debug(
-                                        f"Failed to parse progress message: {e}"
-                                    )
+                                            current = progress_data.get("current")
+                                            total = progress_data.get("total")
+                                            if current is not None and total is not None:
+                                                await context.progress(
+                                                    message, current, total
+                                                )
+                                            else:
+                                                # Send as info log if no numeric progress
+                                                await context.info(f"R: {message}")
+                                    except (json.JSONDecodeError, AttributeError) as e:
+                                        logger.debug(
+                                            f"Failed to parse progress message: {e}"
+                                        )
 
                     # Run stdout and stderr monitoring concurrently using TaskGroup (Python 3.11+)
                     async with asyncio.TaskGroup() as tg:
