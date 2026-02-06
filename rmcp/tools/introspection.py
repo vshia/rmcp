@@ -24,7 +24,7 @@ from ..registries.tools import tool
 
 @tool(
     name="list_r_objects",
-    description="List all objects in the current R workspace/session",
+    description="List all objects in the current R workspace. Use this to find the names of persisted datasets available for use with the 'data_name' parameter in other tools.",
     input_schema={
         "type": "object",
         "properties": {
