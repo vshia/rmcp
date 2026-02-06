@@ -124,11 +124,19 @@ class TestToolSchemaStructure:
 
         if "data" in schema.get("properties", {}):
             data_schema = schema["properties"]["data"]
-            assert data_schema["type"] == "object", (
-                f"{tool_name} data parameter should be object type"
-            )
-            assert "properties" in data_schema, (
-                f"{tool_name} data parameter missing properties"
+            # data parameter can be just "object" or ["object", "array"]
+            data_type = data_schema.get("type")
+            if isinstance(data_type, list):
+                assert "object" in data_type, (
+                    f"{tool_name} data parameter should allow object type"
+                )
+            else:
+                assert data_type == "object", (
+                    f"{tool_name} data parameter should be object type"
+                )
+
+            assert "properties" in data_schema or "items" in data_schema, (
+                f"{tool_name} data parameter missing properties or items"
             )
 
     @pytest.mark.parametrize("tool_name,tool_func,test_input", get_test_tools())
@@ -209,13 +217,14 @@ class TestToolSchemaEdgeCases:
         tool = regression.linear_model
         schema = tool._mcp_tool_input_schema
 
-        # Input missing required 'data' parameter
-        invalid_input = {"formula": "y ~ x"}
+        # Input missing required 'formula' parameter
+        # Note: 'data' is optional now because 'data_name' can be used instead
+        invalid_input = {"data": {"x": [1, 2], "y": [3, 4]}}
 
         with pytest.raises(ValidationError) as exc_info:
             validate(instance=invalid_input, schema=schema)
 
-        assert "'data' is a required property" in str(exc_info.value)
+        assert "'formula' is a required property" in str(exc_info.value)
 
     def test_additional_properties_handling(self):
         """Test how schemas handle additional properties."""
