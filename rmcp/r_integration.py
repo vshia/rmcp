@@ -478,6 +478,29 @@ async def execute_r_script_async(
                 # Normalize path for Windows compatibility
                 args_path_safe = args_path.replace("\\", "/")
                 result_path_safe = result_path.replace("\\", "/")
+                # Prepare session persistence code if enabled
+                session_id = None
+                if context:
+                    try:
+                        get_session_id = getattr(context, "get_r_session_id", None)
+                        session_id = get_session_id() if get_session_id else None
+                    except Exception:
+                        pass
+                
+                persistence_before = ""
+                persistence_after = ""
+                enabled = getattr(context.lifespan, "r_session_enabled", False) if context else False
+                if session_id and context and enabled:
+                    # Load existing workspace if it exists
+                    # Also remove the 'result' variable if it was loaded from workspace
+                    # to ensure we don't return stale results.
+                    persistence_before = (
+                        'if (file.exists(".RData")) { load(".RData") }\n'
+                        'if (exists("result")) { rm(result) }\n'
+                    )
+                    # Save workspace after script execution (but before writing results)
+                    persistence_after = 'save.image(".RData")\n'
+
                 # Create complete R script with progress reporting
                 full_script = f"""
 # Load required libraries
@@ -499,11 +522,13 @@ rmcp_progress <- function(message, current = NULL, total = NULL) {{
     cat("RMCP_PROGRESS:", toJSON(progress_data, auto_unbox = TRUE), "\\n", file = stderr())
     flush(stderr())
 }}
+{persistence_before}
 # Load arguments
 args <- fromJSON("{args_path_safe}")
 # User script
 {script}
 # Write result
+{persistence_after}
 if (exists("result")) {{
     writeLines(toJSON(result, auto_unbox = TRUE, na = "null", pretty = TRUE), "{result_path_safe}")
 }} else {{

@@ -328,6 +328,14 @@ All tools provide professionally formatted output with markdown tables, statisti
         for callback in self._startup_callbacks:
             await callback()
 
+        # Initialize R session manager if enabled
+        if self.lifespan_state.r_session_enabled:
+            from ..r_session import initialize_session_manager
+            try:
+                await initialize_session_manager()
+            except Exception as e:
+                logger.warning(f"Failed to initialize R session manager: {e}")
+
         # Log registry summary
         tools_count = len(getattr(self.tools, "_tools", {}))
         resources_count = len(getattr(self.resources, "_static_resources", {})) + len(
@@ -361,6 +369,14 @@ All tools provide professionally formatted output with markdown tables, statisti
                 await callback()
             except Exception as e:
                 logger.error(f"Error in shutdown callback: {e}")
+
+        # Cleanup R session manager
+        try:
+            from ..r_session import cleanup_session_manager
+            await cleanup_session_manager()
+        except Exception as e:
+            logger.error(f"Error cleaning up R session manager: {e}")
+
         logger.info("Server shutdown complete")
 
     def create_context(

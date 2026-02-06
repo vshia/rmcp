@@ -56,7 +56,7 @@ class LifespanState:
     # Logging
     current_log_level: str = "info"
     # R Session Management
-    r_session_enabled: bool = False
+    r_session_enabled: bool = True
     r_session_timeout: float = 3600.0  # 1 hour default
     default_r_session_id: str | None = None
 
@@ -233,26 +233,8 @@ class Context:
             except Exception as e:
                 await self.warn(f"Failed to create export directory: {e}")
 
-        # Try session execution first if enabled and requested
-        if use_session and self.is_r_session_enabled():
-            try:
-                from ..r_session import get_session_manager
-
-                # Use or create session with the determined working directory
-                session_id = await self.get_or_create_r_session(
-                    working_directory=working_directory
-                )
-                if session_id:
-                    session_manager = get_session_manager()
-                    return await session_manager.execute_in_session(
-                        session_id, script, args, self
-                    )
-            except Exception as e:
-                await self.warn(
-                    f"Session execution failed, falling back to stateless: {e}"
-                )
-
-        # Fall back to stateless execution
+        # Execute R script - persistence is handled automatically in execute_r_script_async
+        # if r_session_enabled is True and a session ID is present.
         from ..r_integration import execute_r_script_async
 
         return await execute_r_script_async(
