@@ -1,6 +1,10 @@
 """
 Data transformation tools for RMCP.
 Essential data manipulation and cleaning capabilities.
+
+All tools in this module support session-aware data loading:
+- Pass data inline via the 'data' parameter, OR
+- Reference a workspace object via the 'data_name' parameter
 """
 
 from typing import Any
@@ -9,11 +13,12 @@ from ..core.schemas import table_schema
 from ..r_assets.loader import get_r_script
 from ..r_integration import execute_r_script_async
 from ..registries.tools import tool
+from .session_data import add_data_name_param
 
 
 @tool(
     name="lag_lead",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -22,7 +27,7 @@ from ..registries.tools import tool
             "leads": {"type": "array", "items": {"type": "integer"}},
         },
         "required": ["data", "variables"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -71,7 +76,7 @@ async def lag_lead(context, params) -> dict[str, Any]:
 
 @tool(
     name="winsorize",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -86,7 +91,7 @@ async def lag_lead(context, params) -> dict[str, Any]:
             },
         },
         "required": ["data", "variables"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -155,7 +160,7 @@ async def winsorize(context, params) -> dict[str, Any]:
 
 @tool(
     name="difference",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -164,7 +169,7 @@ async def winsorize(context, params) -> dict[str, Any]:
             "log_transform": {"type": "boolean", "default": False},
         },
         "required": ["data", "variables"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -224,7 +229,7 @@ async def difference(context, params) -> dict[str, Any]:
 
 @tool(
     name="standardize",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -236,7 +241,7 @@ async def difference(context, params) -> dict[str, Any]:
             },
         },
         "required": ["data", "variables"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {

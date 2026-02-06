@@ -9,11 +9,12 @@ from ..core.schemas import formula_schema, table_schema
 from ..r_assets.loader import get_r_script
 from ..r_integration import execute_r_script_async
 from ..registries.tools import tool
+from .session_data import add_data_name_param
 
 
 @tool(
     name="panel_regression",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -28,7 +29,7 @@ from ..registries.tools import tool
             "robust": {"type": "boolean", "default": True},
         },
         "required": ["data", "formula", "id_variable", "time_variable"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -133,7 +134,7 @@ async def panel_regression(context, params) -> dict[str, Any]:
 
 @tool(
     name="instrumental_variables",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -144,7 +145,7 @@ async def panel_regression(context, params) -> dict[str, Any]:
             "robust": {"type": "boolean", "default": True},
         },
         "required": ["data", "formula"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -271,7 +272,7 @@ async def instrumental_variables(context, params) -> dict[str, Any]:
 
 @tool(
     name="var_model",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -284,7 +285,7 @@ async def instrumental_variables(context, params) -> dict[str, Any]:
             },
         },
         "required": ["data", "variables"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {

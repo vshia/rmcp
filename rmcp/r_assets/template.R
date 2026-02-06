@@ -35,28 +35,149 @@ if (!exists("args") || is.function(args)) {
 # Validate and prepare data
 if (exists("validate_json_input") && is.function(validate_json_input)) {
   # Most scripts require data, validate generically
-  required_fields <- if ("data" %in% names(args)) c("data") else character(0)
+  # Note: data is now optional since data_name can be used instead
+  required_fields <- character(0)
   args <- validate_json_input(args, required = required_fields)
 }
 
-# Prepare data variable if needed
-if ("data" %in% names(args)) {
-  # Convert data to proper data.frame format
-  if (is.list(args$data) && !is.data.frame(args$data)) {
-    # Handle list format - convert to data.frame
-    data <- tryCatch(
-      {
-        as.data.frame(args$data)
-      },
-      error = function(e) {
-        stop("Failed to convert data to data.frame: ", e$message)
-      }
-    )
-  } else if (is.data.frame(args$data)) {
-    data <- args$data
-  } else {
-    stop("Data must be a list or data.frame, got: ", class(args$data)[1])
+# === SESSION-AWARE DATA RESOLUTION ===
+# Resolve data from either inline args$data or workspace reference args$data_name
+resolve_session_data <- function(args, data_param = "data") {
+  # Check if data was passed inline
+  if (!is.null(args[[data_param]]) && length(args[[data_param]]) > 0) {
+    data <- as.data.frame(args[[data_param]])
+    attr(data, "source") <- "inline"
+    return(data)
   }
+
+  # Check if data_name was provided to reference workspace object
+  if (!is.null(args$data_name) && nchar(args$data_name) > 0) {
+    data_name <- args$data_name
+
+    # Check if object exists in global environment
+    if (!exists(data_name, envir = .GlobalEnv)) {
+      stop(paste0(
+        "Object '", data_name, "' not found in R workspace.\n",
+        "Available objects: ",
+        paste(ls(envir = .GlobalEnv), collapse = ", ")
+      ))
+    }
+
+    # Get the object
+    data <- get(data_name, envir = .GlobalEnv)
+
+    # Convert to data frame if needed
+    if (!is.data.frame(data)) {
+      if (is.matrix(data)) {
+        data <- as.data.frame(data)
+      } else if (is.list(data)) {
+        data <- as.data.frame(data)
+      } else {
+        stop(paste0(
+          "Object '", data_name, "' is not a data frame or convertible type.\n",
+          "Object class: ", paste(class(data), collapse = ", ")
+        ))
+      }
+    }
+
+    attr(data, "source") <- paste0("workspace:", data_name)
+    return(data)
+  }
+
+  # Neither provided - return NULL (some tools may not need data)
+  return(NULL)
+}
+
+# Resolve timeseries data (special format with values/dates)
+resolve_timeseries_data <- function(args) {
+  # Check if inline data was passed
+  if (!is.null(args$data) && length(args$data) > 0) {
+    data <- args$data
+    attr(data, "source") <- "inline"
+    return(data)
+  }
+
+  # Check if data_name was provided
+  if (!is.null(args$data_name) && nchar(args$data_name) > 0) {
+    data_name <- args$data_name
+
+    if (!exists(data_name, envir = .GlobalEnv)) {
+      stop(paste0(
+        "Object '", data_name, "' not found in R workspace.\n",
+        "Available objects: ",
+        paste(ls(envir = .GlobalEnv), collapse = ", ")
+      ))
+    }
+
+    obj <- get(data_name, envir = .GlobalEnv)
+
+    # Handle different object types
+    if (inherits(obj, c("ts", "xts", "zoo"))) {
+      # Time series object - extract values and dates
+      data <- list(
+        values = as.numeric(obj),
+        dates = if (inherits(obj, "xts") || inherits(obj, "zoo")) {
+          as.character(index(obj))
+        } else {
+          NULL
+        }
+      )
+    } else if (is.data.frame(obj)) {
+      # Data frame - look for values column
+      if ("values" %in% names(obj)) {
+        data <- list(
+          values = obj$values,
+          dates = if ("dates" %in% names(obj)) obj$dates else NULL
+        )
+      } else {
+        # Use first numeric column as values
+        num_cols <- sapply(obj, is.numeric)
+        if (any(num_cols)) {
+          data <- list(
+            values = obj[[which(num_cols)[1]]],
+            dates = NULL
+          )
+        } else {
+          stop(paste0(
+            "Object '", data_name, "' has no numeric columns for time series."
+          ))
+        }
+      }
+    } else if (is.numeric(obj)) {
+      # Numeric vector
+      data <- list(values = obj, dates = NULL)
+    } else {
+      stop(paste0(
+        "Object '", data_name, "' cannot be converted to time series format.\n",
+        "Expected: ts, xts, zoo, data.frame with values column, or numeric vector.\n",
+        "Got: ", paste(class(obj), collapse = ", ")
+      ))
+    }
+
+    attr(data, "source") <- paste0("workspace:", data_name)
+    return(data)
+  }
+
+  # Neither provided - return NULL
+  return(NULL)
+}
+
+# Prepare data variable using session-aware resolution
+# This supports both inline data and workspace references via data_name
+if ("data" %in% names(args) || "data_name" %in% names(args)) {
+  data <- tryCatch(
+    {
+      resolve_session_data(args)
+    },
+    error = function(e) {
+      # If resolution fails but data was required, stop
+      # Otherwise just set data to NULL
+      if ("data" %in% names(args) && !is.null(args$data)) {
+        stop(e$message)
+      }
+      NULL
+    }
+  )
 } else if (!exists("data")) {
   # No data provided and none exists
   data <- NULL

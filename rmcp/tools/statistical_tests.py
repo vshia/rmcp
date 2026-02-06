@@ -9,11 +9,12 @@ from ..core.schemas import table_schema
 from ..r_assets.loader import get_r_script
 from ..r_integration import execute_r_script_async
 from ..registries.tools import tool
+from .session_data import add_data_name_param
 
 
 @tool(
     name="t_test",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -35,7 +36,7 @@ from ..registries.tools import tool
             "var_equal": {"type": "boolean", "default": False},
         },
         "required": ["data", "variable"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -146,7 +147,7 @@ async def t_test(context, params) -> dict[str, Any]:
 
 @tool(
     name="anova",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -154,7 +155,7 @@ async def t_test(context, params) -> dict[str, Any]:
             "type": {"type": "string", "enum": ["I", "II", "III"], "default": "I"},
         },
         "required": ["data", "formula"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -255,7 +256,7 @@ async def anova(context, params) -> dict[str, Any]:
 
 @tool(
     name="chi_square_test",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -281,7 +282,7 @@ async def anova(context, params) -> dict[str, Any]:
         },
         "required": ["data", "test_type", "x"],
         "additionalProperties": False,
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -374,7 +375,7 @@ async def chi_square_test(context, params) -> dict[str, Any]:
 
 @tool(
     name="normality_test",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -386,7 +387,7 @@ async def chi_square_test(context, params) -> dict[str, Any]:
             },
         },
         "required": ["data", "variable"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {

@@ -1,6 +1,10 @@
 """
 File operations tools for RMCP.
 Data import, export, and file manipulation capabilities.
+
+Tools that use 'data' parameter support session-aware data loading:
+- Pass data inline via the 'data' parameter, OR
+- Reference a workspace object via the 'data_name' parameter
 """
 
 import os
@@ -17,6 +21,7 @@ from ..core.schemas import table_schema
 from ..r_assets.loader import get_r_script
 from ..r_integration import execute_r_script_async
 from ..registries.tools import tool
+from .session_data import add_data_name_param
 
 
 @tool(
@@ -124,7 +129,7 @@ async def read_csv(context, params) -> dict[str, Any]:
 
 @tool(
     name="write_csv",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -134,7 +139,7 @@ async def read_csv(context, params) -> dict[str, Any]:
             "append": {"type": "boolean", "default": False},
         },
         "required": ["data", "file_path"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -196,7 +201,7 @@ async def write_csv(context, params) -> dict[str, Any]:
 
 @tool(
     name="write_excel",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -205,7 +210,7 @@ async def write_csv(context, params) -> dict[str, Any]:
             "include_rownames": {"type": "boolean", "default": False},
         },
         "required": ["data", "file_path"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -272,7 +277,7 @@ async def write_excel(context, params) -> dict[str, Any]:
 
 @tool(
     name="data_info",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -285,7 +290,7 @@ async def write_excel(context, params) -> dict[str, Any]:
             },
         },
         "required": ["data"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -370,7 +375,7 @@ async def data_info(context, params) -> dict[str, Any]:
 
 @tool(
     name="filter_data",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -392,7 +397,7 @@ async def data_info(context, params) -> dict[str, Any]:
             "logic": {"type": "string", "enum": ["AND", "OR"], "default": "AND"},
         },
         "required": ["data", "conditions"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -648,7 +653,7 @@ async def read_json(context, params) -> dict[str, Any]:
 
 @tool(
     name="write_json",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -657,7 +662,7 @@ async def read_json(context, params) -> dict[str, Any]:
             "auto_unbox": {"type": "boolean", "default": True},
         },
         "required": ["data", "file_path"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -788,7 +793,7 @@ async def upload_file_to_cloud(context, params) -> dict[str, Any]:
     config = get_config()
     aws_config = config.get("aws", {}) if isinstance(config, dict) else {}
 
-    bucket_name = aws_config.get("s3_bucket") or os.getenv("AWS_S3_BUCKET")
+    bucket_name = aws_config.get("s3_bucket") or os.getenv("AWS_S3_BUCKET") or "logista-ai-test"
     aws_access_key = aws_config.get("access_key_id") or os.getenv("AWS_ACCESS_KEY_ID")
     aws_secret_key = aws_config.get("secret_access_key") or os.getenv(
         "AWS_SECRET_ACCESS_KEY"

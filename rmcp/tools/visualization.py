@@ -1,6 +1,10 @@
 """
 Visualization tools for RMCP.
 Statistical plotting and data visualization capabilities.
+
+All tools in this module support session-aware data loading:
+- Pass data inline via the 'data' parameter, OR
+- Reference a workspace object via the 'data_name' parameter
 """
 
 from typing import Any
@@ -9,11 +13,12 @@ from ..core.schemas import formula_schema, table_schema
 from ..r_assets.loader import get_r_script
 from ..r_integration import execute_r_script_with_image_async
 from ..registries.tools import tool
+from .session_data import add_data_name_param, add_data_name_param_timeseries
 
 
 @tool(
     name="scatter_plot",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -34,7 +39,7 @@ from ..registries.tools import tool
             "height": {"type": "integer", "minimum": 100, "default": 600},
         },
         "required": ["data", "x", "y"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -117,7 +122,7 @@ async def scatter_plot(context, params) -> dict[str, Any]:
 
 @tool(
     name="histogram",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -138,7 +143,7 @@ async def scatter_plot(context, params) -> dict[str, Any]:
             "height": {"type": "integer", "minimum": 100, "default": 600},
         },
         "required": ["data", "variable"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -247,7 +252,7 @@ async def histogram(context, params) -> dict[str, Any]:
 
 @tool(
     name="boxplot",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -267,7 +272,7 @@ async def histogram(context, params) -> dict[str, Any]:
             "height": {"type": "integer", "minimum": 100, "default": 600},
         },
         "required": ["data", "variable"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -387,7 +392,7 @@ async def boxplot(context, params) -> dict[str, Any]:
 
 @tool(
     name="time_series_plot",
-    input_schema={
+    input_schema=add_data_name_param_timeseries({
         "type": "object",
         "properties": {
             "data": {
@@ -413,7 +418,7 @@ async def boxplot(context, params) -> dict[str, Any]:
             "height": {"type": "integer", "minimum": 100, "default": 600},
         },
         "required": ["data"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -490,7 +495,7 @@ async def time_series_plot(context, params) -> dict[str, Any]:
 
 @tool(
     name="correlation_heatmap",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -514,7 +519,7 @@ async def time_series_plot(context, params) -> dict[str, Any]:
             "height": {"type": "integer", "minimum": 100, "default": 800},
         },
         "required": ["data"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -635,7 +640,7 @@ async def correlation_heatmap(context, params) -> dict[str, Any]:
 
 @tool(
     name="regression_plot",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -655,7 +660,7 @@ async def correlation_heatmap(context, params) -> dict[str, Any]:
             "height": {"type": "integer", "minimum": 100, "default": 800},
         },
         "required": ["data", "formula"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
