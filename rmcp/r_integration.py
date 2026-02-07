@@ -332,8 +332,6 @@ ENVIRONMENT:
                 # Check for common R package errors
                 if "there is no package called" in stderr:
                     # Extract package name from error
-                    import re
-
                     match = re.search(r"there is no package called '([^']+)'", stderr)
                     if match:
                         missing_pkg = match.group(1)
@@ -485,7 +483,7 @@ async def execute_r_script_async(
                         get_session_id = getattr(context, "get_r_session_id", None)
                         session_id = get_session_id() if get_session_id else None
                     except Exception as e:
-                        logger.debug(f"Failed to get R session ID: {e}")
+                        logger.debug("Failed to get R session ID from context: %s", e)
 
                 persistence_before = ""
                 persistence_after = ""
@@ -498,10 +496,19 @@ async def execute_r_script_async(
                         'if (exists("result", envir = .GlobalEnv)) rm(result, envir = .GlobalEnv) }\n'
                     )
                     # Save workspace after script execution using atomic write pattern
-                    # (write to temp file, then rename) to prevent corruption from race conditions
+                    # (write to temp file, then rename) to prevent corruption from race conditions.
+                    # Wrapped in tryCatch to ensure persistence failures don't cause script failure.
+                    # On Windows, file.rename may fail if destination exists, so we use file.copy as fallback.
                     persistence_after = (
+                        'tryCatch({ '
                         '.rmcp_temp <- tempfile(pattern = ".RData_", tmpdir = ".", fileext = ".tmp"); '
-                        'save.image(.rmcp_temp); file.rename(.rmcp_temp, ".RData")\n'
+                        'save.image(.rmcp_temp); '
+                        'if (!file.rename(.rmcp_temp, ".RData")) { '
+                        'if (file.exists(".RData")) file.remove(".RData"); '
+                        'if (!file.rename(.rmcp_temp, ".RData") && file.exists(.rmcp_temp)) { '
+                        'file.copy(.rmcp_temp, ".RData", overwrite = TRUE); '
+                        'unlink(.rmcp_temp) } } '
+                        '}, error = function(e) NULL)\n'
                     )
 
                 # Create complete R script with progress reporting
@@ -637,6 +644,36 @@ if (exists("result")) {{
                         stderr="Execution timed out",
                         returncode=-1,
                     )
+                # First, try to read the result file regardless of return code.
+                # This handles cases where R exits with non-zero code due to warnings
+                # or non-fatal issues, but still produces valid output.
+                result_valid = False
+                result = None
+                try:
+                    if Path(result_path).exists() and Path(result_path).stat().st_size > 0:
+                        with open(result_path) as f:
+                            result_json = f.read()
+                            result = json.loads(result_json)
+                            result_valid = True
+                except (FileNotFoundError, json.JSONDecodeError, OSError):
+                    pass
+
+                # If we got valid results but R had non-zero exit, log warning and return
+                if proc.returncode != 0 and result_valid:
+                    logger.warning(
+                        f"R script exited with code {proc.returncode} but produced valid output. "
+                        f"Stderr: {stderr[:500] if stderr else '(empty)'}"
+                    )
+                    # Log structured R execution completion
+                    execution_time_ms = int((time.time() - start_time) * 1000)
+                    log_r_execution(
+                        logger,
+                        r_command=script[:100] + "..." if len(script) > 100 else script,
+                        execution_time_ms=execution_time_ms,
+                        success=True,
+                    )
+                    return result
+
                 if proc.returncode != 0:
                     # Enhanced error handling for missing packages
                     try:
@@ -662,8 +699,6 @@ ENVIRONMENT:
                     # Check for common R package errors
                     if "there is no package called" in stderr:
                         # Extract package name from error
-                        import re
-
                         match = re.search(
                             r"there is no package called '([^']+)'", stderr
                         )
@@ -722,8 +757,6 @@ ENVIRONMENT:
                         context_info = ""
                         if stderr and "parameters but only" in stderr:
                             # Try to extract parameter and observation counts
-                            import re
-
                             match = re.search(
                                 r"(\d+) parameters but only (\d+) observations", stderr
                             )
@@ -790,7 +823,30 @@ Original error:
                         stderr=stderr,
                         returncode=proc.returncode or 0,
                     )
-                # Read and parse results
+                # Read and parse results (reuse result if already read above)
+                if result_valid and result is not None:
+                    result_info = (
+                        list(result.keys())
+                        if isinstance(result, dict)
+                        else type(result)
+                    )
+                    # Log structured R execution completion
+                    execution_time_ms = int((time.time() - start_time) * 1000)
+                    log_r_execution(
+                        logger,
+                        r_command=script[:100] + "..."
+                        if len(script) > 100
+                        else script,
+                        execution_time_ms=execution_time_ms,
+                        success=True,
+                    )
+
+                    logger.debug(
+                        f"R script completed successfully, result keys: {result_info}"
+                    )
+                    return result
+
+                # Try to read result file (fallback if not already read)
                 try:
                     with open(result_path) as f:
                         result_json = f.read()

@@ -49,10 +49,16 @@ def table_schema(required_columns: list[str] | None = None) -> dict[str, Any]:
     - Row-oriented (array): [{"col1": val1, "col2": val1}, {"col1": val2, "col2": val2}]
 
     The R scripts will convert row-oriented data to column-oriented internally.
+
+    Note: Full validation including required_columns checking happens at runtime
+    in R since JSON Schema validation at the API level has limitations with
+    dual-format schemas. LLM APIs have strict requirements that prevent using
+    advanced JSON Schema features like conditional validation.
     """
     # Accept both object (column-oriented) and array (row-oriented) formats
     # We can't use oneOf/anyOf at top level due to LLM API restrictions
-    # When type includes "array", we must provide "items" schema
+    # We also can't use additionalProperties with type:array without items
+    # Keep schema simple to ensure LLM API compatibility
     schema: dict[str, Any] = {
         "type": ["object", "array"],
         "items": {"type": "object"},  # For row-oriented: each item is a row object
@@ -61,8 +67,8 @@ def table_schema(required_columns: list[str] | None = None) -> dict[str, Any]:
             "({col: [values...]}) or row-oriented format ([{col: value}...])"
         ),
     }
-    # Note: required_columns validation happens at runtime in R
-    # since we now accept two different formats
+    # Note: required_columns and other validation happens at runtime in R
+    # since LLM APIs have limitations with dual-format schemas
     return schema
 
 

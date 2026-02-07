@@ -5,10 +5,13 @@ This module provides utilities to make RMCP tools session-aware, allowing them t
 reference data stored in the R workspace instead of requiring inline data each time.
 
 Usage:
-    from .session_data import add_data_name_param, get_data_resolution_preamble
+    from .session_data import add_data_name_param, get_data_resolution_preamble, validate_data_params
 
     # In tool definition, modify schema:
     schema = add_data_name_param(original_schema)
+
+    # In tool execution, validate inputs:
+    validate_data_params(params)  # Raises ValueError if neither data nor data_name provided
 
     # In tool execution, prepend R preamble:
     r_preamble = get_data_resolution_preamble()
@@ -17,6 +20,40 @@ Usage:
 
 import copy
 from typing import Any
+
+
+class DataValidationError(ValueError):
+    """Raised when data/data_name validation fails."""
+    pass
+
+
+def validate_data_params(
+    params: dict[str, Any],
+    data_param: str = "data",
+    require_data: bool = True,
+) -> None:
+    """
+    Validate that either data or data_name is provided in params.
+
+    Args:
+        params: The tool parameters dict
+        data_param: The name of the data parameter (default: "data")
+        require_data: Whether data is required (default: True)
+
+    Raises:
+        DataValidationError: If require_data is True and neither data nor data_name is provided
+    """
+    if not require_data:
+        return
+
+    has_data = data_param in params and params[data_param] is not None
+    has_data_name = "data_name" in params and params.get("data_name")
+
+    if not has_data and not has_data_name:
+        raise DataValidationError(
+            f"No data provided. Either pass '{data_param}' with inline data, "
+            "or provide 'data_name' to reference an object in the R workspace."
+        )
 
 
 def add_data_name_param(schema: dict[str, Any], data_param: str = "data") -> dict[str, Any]:
@@ -115,8 +152,9 @@ def add_data_name_param_timeseries(schema: dict[str, Any]) -> dict[str, Any]:
         "description": (
             "Name of time series object in R workspace. "
             "Use this instead of 'data' to reference previously loaded data. "
-            "The object should be a data frame with 'values' column, "
-            "or a ts/xts object. Either 'data' or 'data_name' must be provided."
+            "Supported types: data.frame with 'values' column, numeric vector, "
+            "or ts/xts/zoo time series objects. Either 'data' or 'data_name' "
+            "must be provided."
         ),
     }
 

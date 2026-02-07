@@ -215,11 +215,18 @@ class Context:
         Args:
             script: R script to execute
             args: Arguments to pass to script
-            use_session: Whether to use session (if available) or run statelessly
+            use_session: Whether to use session (if available) or run statelessly.
+                         When False, no workspace persistence occurs.
 
         Returns:
             Script execution results
         """
+        from ..r_integration import execute_r_script_async
+
+        # If use_session is False, run without context to disable persistence
+        if not use_session:
+            return await execute_r_script_async(script, args, context=None)
+
         # Determine working directory for exports as requested by the user
         working_directory = None
         session_id = self.get_r_session_id()
@@ -235,8 +242,6 @@ class Context:
 
         # Execute R script - persistence is handled automatically in execute_r_script_async
         # if r_session_enabled is True and a session ID is present.
-        from ..r_integration import execute_r_script_async
-
         return await execute_r_script_async(
             script, args, self, working_directory=working_directory
         )

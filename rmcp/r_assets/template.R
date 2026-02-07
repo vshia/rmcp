@@ -84,7 +84,15 @@ resolve_session_data <- function(args, data_param = "data") {
     return(data)
   }
 
-  # Neither provided - return NULL (some tools may not need data)
+  # Neither provided - return NULL
+
+  # IMPORTANT: Tools that require data MUST check for NULL and provide a clear error.
+  # Example:
+  #   data <- resolve_session_data(args)
+  #   if (is.null(data)) {
+  #     stop("No data provided. Pass 'data' or 'data_name'.")
+  #   }
+  # This allows optional-data tools to work while required-data tools fail fast.
   return(NULL)
 }
 
@@ -158,6 +166,13 @@ resolve_timeseries_data <- function(args) {
   }
 
   # Neither provided - return NULL
+
+  # IMPORTANT: Tools that require data MUST check for NULL and provide a clear error.
+  # Example:
+  #   ts_data <- resolve_timeseries_data(args)
+  #   if (is.null(ts_data)) {
+  #     stop("No data provided. Pass 'data' or 'data_name'.")
+  #   }
   return(NULL)
 }
 

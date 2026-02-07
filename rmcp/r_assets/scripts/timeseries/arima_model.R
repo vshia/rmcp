@@ -9,36 +9,23 @@ library(forecast)
 library(broom)
 library(knitr)
 
-# Prepare data
+# Prepare data using session-aware resolution
 rmcp_progress("Preparing time series data")
 
-# Extract data - handle both direct values and data structure
-if ("values" %in% names(args$data)) {
-  # Data comes from Python schema with data.values structure
-  values <- args$data$values
-} else if ("value_col" %in% names(args)) {
-  # Legacy column-based extraction
-  value_col <- args$value_col %||% "value"
-  if (value_col %in% names(data)) {
-    values <- data[[value_col]]
-  } else {
-    # Find first numeric column
-    numeric_cols <- names(data)[sapply(data, is.numeric)]
-    if (length(numeric_cols) > 0) {
-      values <- data[[numeric_cols[1]]]
-      warning(paste("Column", value_col, "not found, using", numeric_cols[1]))
-    } else {
-      stop("No numeric columns found for time series analysis")
-    }
-  }
+# Use resolve_timeseries_data for session-aware data loading
+# This supports both inline data and workspace references via data_name
+ts_input <- resolve_timeseries_data(args)
+if (is.null(ts_input)) {
+  stop("No data provided. Either pass 'data' with values/dates, or provide 'data_name' to reference an object in the R workspace.")
+}
+
+# Extract values from the resolved data
+if (is.list(ts_input) && "values" %in% names(ts_input)) {
+  values <- ts_input$values
+} else if (is.numeric(ts_input)) {
+  values <- ts_input
 } else {
-  # Try to find values in data directly
-  numeric_cols <- names(data)[sapply(data, is.numeric)]
-  if (length(numeric_cols) > 0) {
-    values <- data[[numeric_cols[1]]]
-  } else {
-    stop("No numeric data found for time series analysis")
-  }
+  stop("Resolved data must contain 'values' or be a numeric vector")
 }
 # Convert to time series
 frequency <- args$frequency %||% 12 # Default to monthly data
