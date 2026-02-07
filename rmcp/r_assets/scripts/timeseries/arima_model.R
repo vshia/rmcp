@@ -14,10 +14,8 @@ rmcp_progress("Preparing time series data")
 
 # Use resolve_timeseries_data for session-aware data loading
 # This supports both inline data and workspace references via data_name
+# The function fails fast with a clear error if no data is provided
 ts_input <- resolve_timeseries_data(args)
-if (is.null(ts_input)) {
-  stop("No data provided. Either pass 'data' with values/dates, or provide 'data_name' to reference an object in the R workspace.")
-}
 
 # Extract values from the resolved data
 if (is.list(ts_input) && "values" %in% names(ts_input)) {

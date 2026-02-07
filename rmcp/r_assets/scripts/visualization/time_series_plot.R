@@ -19,10 +19,8 @@ height <- args$height %||% 600
 
 # Use resolve_timeseries_data for session-aware data loading
 # This supports both inline data ({values, dates}) and workspace references via data_name
+# The function fails fast with a clear error if no data is provided
 ts_input <- resolve_timeseries_data(args)
-if (is.null(ts_input)) {
-  stop("No data provided. Either pass 'data' with values/dates, or provide 'data_name' to reference an object in the R workspace.")
-}
 
 # Convert timeseries input to data.frame for ggplot
 if (is.list(ts_input) && "values" %in% names(ts_input)) {

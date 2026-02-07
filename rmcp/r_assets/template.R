@@ -42,7 +42,12 @@ if (exists("validate_json_input") && is.function(validate_json_input)) {
 
 # === SESSION-AWARE DATA RESOLUTION ===
 # Resolve data from either inline args$data or workspace reference args$data_name
-resolve_session_data <- function(args, data_param = "data") {
+# Parameters:
+#   args: The arguments list from the tool call
+#   data_param: The name of the data parameter (default: "data")
+#   required: If TRUE (default), stops with clear error when no data provided.
+#             If FALSE, returns NULL for optional-data tools.
+resolve_session_data <- function(args, data_param = "data", required = TRUE) {
   # Check if data was passed inline
   if (!is.null(args[[data_param]]) && length(args[[data_param]]) > 0) {
     data <- as.data.frame(args[[data_param]])
@@ -84,20 +89,26 @@ resolve_session_data <- function(args, data_param = "data") {
     return(data)
   }
 
-  # Neither provided - return NULL
+  # Neither provided - fail fast if required, otherwise return NULL
+  if (required) {
+    stop(paste0(
+      "No data provided. You must either:\n",
+      "  1. Pass data inline via the '", data_param, "' parameter, OR\n",
+      "  2. Reference a workspace object via 'data_name' parameter\n",
+      "Hint: Use read_csv or read_excel with 'output_data_name' to load data first."
+    ))
+  }
 
-  # IMPORTANT: Tools that require data MUST check for NULL and provide a clear error.
-  # Example:
-  #   data <- resolve_session_data(args)
-  #   if (is.null(data)) {
-  #     stop("No data provided. Pass 'data' or 'data_name'.")
-  #   }
-  # This allows optional-data tools to work while required-data tools fail fast.
   return(NULL)
 }
 
 # Resolve timeseries data (special format with values/dates)
-resolve_timeseries_data <- function(args) {
+# Accepts: ts, xts, zoo objects, data.frames with 'values' column, or numeric vectors
+# Parameters:
+#   args: The arguments list from the tool call
+#   required: If TRUE (default), stops with clear error when no data provided.
+#             If FALSE, returns NULL for optional-data tools.
+resolve_timeseries_data <- function(args, required = TRUE) {
   # Check if inline data was passed
   if (!is.null(args$data) && length(args$data) > 0) {
     data <- args$data
@@ -165,14 +176,16 @@ resolve_timeseries_data <- function(args) {
     return(data)
   }
 
-  # Neither provided - return NULL
+  # Neither provided - fail fast if required, otherwise return NULL
+  if (required) {
+    stop(paste0(
+      "No time series data provided. You must either:\n",
+      "  1. Pass data inline via 'data' with {values: [...], dates: [...]} format, OR\n",
+      "  2. Reference a workspace object via 'data_name' parameter\n",
+      "Accepted types: ts, xts, zoo, data.frame with 'values' column, or numeric vector."
+    ))
+  }
 
-  # IMPORTANT: Tools that require data MUST check for NULL and provide a clear error.
-  # Example:
-  #   ts_data <- resolve_timeseries_data(args)
-  #   if (is.null(ts_data)) {
-  #     stop("No data provided. Pass 'data' or 'data_name'.")
-  #   }
   return(NULL)
 }
 
