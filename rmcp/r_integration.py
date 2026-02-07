@@ -27,6 +27,7 @@ import re
 import subprocess
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -535,8 +536,16 @@ async def _execute_r_script_async_impl(
         args_path = args_file.name
         result_path = result_file.name
         try:
-            # Write arguments to JSON file
-            json.dump(args, args_file, default=str)
+            # Generate a unique nonce to verify result freshness.
+            # This prevents returning stale results from previous script runs.
+            result_nonce = str(uuid.uuid4())
+
+            # Add nonce to args (copy to avoid modifying original)
+            args_with_nonce = args.copy()
+            args_with_nonce["_rmcp_nonce"] = result_nonce
+
+            # Write arguments to JSON file (with nonce included)
+            json.dump(args_with_nonce, args_file, default=str)
             args_file.flush()
             # Normalize path for Windows compatibility
             args_path_safe = args_path.replace("\\", "/")
@@ -548,23 +557,28 @@ async def _execute_r_script_async_impl(
             if session_id and context and persistence_enabled:
                 # Load existing workspace if it exists, then remove 'result' variable
                 # to ensure we don't return stale results from previous script runs.
+                # Also remove any internal rmcp variables to keep workspace clean.
                 persistence_before = (
                     'if (file.exists(".RData")) { load(".RData", envir = .GlobalEnv); '
-                    'if (exists("result", envir = .GlobalEnv)) rm(result, envir = .GlobalEnv) }\n'
+                    'if (exists("result", envir = .GlobalEnv)) rm(result, envir = .GlobalEnv); '
+                    'rm(list = ls(pattern = "^\\\\.rmcp_", all.names = TRUE), envir = .GlobalEnv) }\n'
                 )
-                # Save workspace after script execution using atomic write pattern
-                # (write to temp file, then rename) to prevent corruption from race conditions.
-                # Wrapped in tryCatch to ensure persistence failures don't cause script failure.
-                # On Windows, file.rename may fail if destination exists, so we use file.copy as fallback.
+                # Save workspace after script execution, EXCLUDING 'result' to prevent stale
+                # results from being persisted. Uses atomic write pattern (write to temp file,
+                # then rename) to prevent corruption. On Windows, file.rename may fail if
+                # destination exists, so we use file.copy as fallback.
                 persistence_after = (
                     'tryCatch({ '
                     '.rmcp_temp <- tempfile(pattern = ".RData_", tmpdir = ".", fileext = ".tmp"); '
-                    'save.image(.rmcp_temp); '
+                    '.rmcp_save_vars <- setdiff(ls(all.names = TRUE), c("result", ".rmcp_temp", ".rmcp_save_vars")); '
+                    'if (length(.rmcp_save_vars) > 0) { '
+                    'save(list = .rmcp_save_vars, file = .rmcp_temp, envir = .GlobalEnv); '
                     'if (!file.rename(.rmcp_temp, ".RData")) { '
                     'if (file.exists(".RData")) file.remove(".RData"); '
                     'if (!file.rename(.rmcp_temp, ".RData") && file.exists(.rmcp_temp)) { '
                     'file.copy(.rmcp_temp, ".RData", overwrite = TRUE); '
                     'unlink(.rmcp_temp) } } '
+                    '} else { if (file.exists(".RData")) file.remove(".RData") } '
                     '}, error = function(e) NULL)\n'
                 )
 
@@ -594,9 +608,13 @@ rmcp_progress <- function(message, current = NULL, total = NULL) {{
 args <- fromJSON("{args_path_safe}")
 # User script
 {script}
-# Write result
+# Verify result exists and add nonce for freshness validation
 {persistence_after}
 if (exists("result")) {{
+    # Add nonce to result for Python-side verification (prevents stale result bugs)
+    if (is.list(result)) {{
+        result$`_rmcp_nonce` <- args$`_rmcp_nonce`
+    }}
     writeLines(toJSON(result, auto_unbox = TRUE, na = "null", pretty = TRUE), "{result_path_safe}")
 }} else {{
     stop("R script must define a 'result' variable")
@@ -712,6 +730,22 @@ if (exists("result")) {{
                         result_json = f.read()
                         result = json.loads(result_json)
                         result_valid = True
+
+                        # Validate nonce to ensure result is fresh (not stale from previous run)
+                        if isinstance(result, dict):
+                            received_nonce = result.pop("_rmcp_nonce", None)
+                            if received_nonce != result_nonce:
+                                logger.error(
+                                    f"Result nonce mismatch: expected {result_nonce}, "
+                                    f"got {received_nonce}. Possible stale result."
+                                )
+                                raise RExecutionError(
+                                    "Result verification failed: received stale or corrupted result. "
+                                    "The result does not match the current script execution.",
+                                    stdout="",
+                                    stderr="Nonce mismatch - stale result detected",
+                                    returncode=-1,
+                                )
             except (FileNotFoundError, json.JSONDecodeError, OSError):
                 pass
 
@@ -908,6 +942,23 @@ Original error:
                 with open(result_path) as f:
                     result_json = f.read()
                     result = json.loads(result_json)
+
+                    # Validate nonce to ensure result is fresh (not stale from previous run)
+                    if isinstance(result, dict):
+                        received_nonce = result.pop("_rmcp_nonce", None)
+                        if received_nonce != result_nonce:
+                            logger.error(
+                                f"Result nonce mismatch: expected {result_nonce}, "
+                                f"got {received_nonce}. Possible stale result."
+                            )
+                            raise RExecutionError(
+                                "Result verification failed: received stale or corrupted result. "
+                                "The result does not match the current script execution.",
+                                stdout=stdout,
+                                stderr="Nonce mismatch - stale result detected",
+                                returncode=-1,
+                            )
+
                     result_info = (
                         list(result.keys())
                         if isinstance(result, dict)
