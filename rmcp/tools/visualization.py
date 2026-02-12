@@ -1,6 +1,10 @@
 """
 Visualization tools for RMCP.
 Statistical plotting and data visualization capabilities.
+
+All tools in this module support session-aware data loading:
+- Pass data inline via the 'data' parameter, OR
+- Reference a workspace object via the 'data_name' parameter
 """
 
 from typing import Any
@@ -9,11 +13,16 @@ from ..core.schemas import formula_schema, table_schema
 from ..r_assets.loader import get_r_script
 from ..r_integration import execute_r_script_with_image_async
 from ..registries.tools import tool
+from .session_data import (
+    add_data_name_param,
+    add_data_name_param_timeseries,
+    validate_data_params,
+)
 
 
 @tool(
     name="scatter_plot",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -34,7 +43,7 @@ from ..registries.tools import tool
             "height": {"type": "integer", "minimum": 100, "default": 600},
         },
         "required": ["data", "x", "y"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -93,6 +102,8 @@ from ..registries.tools import tool
 )
 async def scatter_plot(context, params) -> dict[str, Any]:
     """Create scatter plot."""
+    # Validate that either data or data_name is provided
+    validate_data_params(params)
     await context.info("Creating scatter plot")
     r_script = get_r_script("visualization", "scatter_plot")
     try:
@@ -117,7 +128,7 @@ async def scatter_plot(context, params) -> dict[str, Any]:
 
 @tool(
     name="histogram",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -138,7 +149,7 @@ async def scatter_plot(context, params) -> dict[str, Any]:
             "height": {"type": "integer", "minimum": 100, "default": 600},
         },
         "required": ["data", "variable"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -199,6 +210,8 @@ async def scatter_plot(context, params) -> dict[str, Any]:
 )
 async def histogram(context, params) -> dict[str, Any]:
     """Create histogram."""
+    # Validate that either data or data_name is provided
+    validate_data_params(params)
     await context.info("Creating histogram")
     r_script = get_r_script("visualization", "histogram")
     try:
@@ -247,7 +260,7 @@ async def histogram(context, params) -> dict[str, Any]:
 
 @tool(
     name="boxplot",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -267,7 +280,7 @@ async def histogram(context, params) -> dict[str, Any]:
             "height": {"type": "integer", "minimum": 100, "default": 600},
         },
         "required": ["data", "variable"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -323,6 +336,8 @@ async def histogram(context, params) -> dict[str, Any]:
 )
 async def boxplot(context, params) -> dict[str, Any]:
     """Create box plot."""
+    # Validate that either data or data_name is provided
+    validate_data_params(params)
     await context.info("Creating box plot")
     r_script = get_r_script("visualization", "boxplot")
     try:
@@ -341,7 +356,6 @@ async def boxplot(context, params) -> dict[str, Any]:
 
         # Ensure schema compliance by mapping R script result to expected format
         stats = result.get("statistics", {})
-        group_var = result.get("group_variable")
 
         # Helper to safely get numeric values (handles None from R's NA)
         def safe_num(value, default=0):
@@ -387,7 +401,7 @@ async def boxplot(context, params) -> dict[str, Any]:
 
 @tool(
     name="time_series_plot",
-    input_schema={
+    input_schema=add_data_name_param_timeseries({
         "type": "object",
         "properties": {
             "data": {
@@ -413,7 +427,7 @@ async def boxplot(context, params) -> dict[str, Any]:
             "height": {"type": "integer", "minimum": 100, "default": 600},
         },
         "required": ["data"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -466,6 +480,8 @@ async def boxplot(context, params) -> dict[str, Any]:
 )
 async def time_series_plot(context, params) -> dict[str, Any]:
     """Create time series plot."""
+    # Validate that either data or data_name is provided
+    validate_data_params(params)
     await context.info("Creating time series plot")
     r_script = get_r_script("visualization", "time_series_plot")
     try:
@@ -490,7 +506,7 @@ async def time_series_plot(context, params) -> dict[str, Any]:
 
 @tool(
     name="correlation_heatmap",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -514,7 +530,7 @@ async def time_series_plot(context, params) -> dict[str, Any]:
             "height": {"type": "integer", "minimum": 100, "default": 800},
         },
         "required": ["data"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -573,6 +589,8 @@ async def time_series_plot(context, params) -> dict[str, Any]:
 )
 async def correlation_heatmap(context, params) -> dict[str, Any]:
     """Create correlation heatmap."""
+    # Validate that either data or data_name is provided
+    validate_data_params(params)
     await context.info("Creating correlation heatmap")
     r_script = get_r_script("visualization", "correlation_heatmap")
     try:
@@ -635,7 +653,7 @@ async def correlation_heatmap(context, params) -> dict[str, Any]:
 
 @tool(
     name="regression_plot",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -655,7 +673,7 @@ async def correlation_heatmap(context, params) -> dict[str, Any]:
             "height": {"type": "integer", "minimum": 100, "default": 800},
         },
         "required": ["data", "formula"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -722,6 +740,8 @@ async def correlation_heatmap(context, params) -> dict[str, Any]:
 )
 async def regression_plot(context, params) -> dict[str, Any]:
     """Create regression diagnostic plots."""
+    # Validate that either data or data_name is provided
+    validate_data_params(params)
     await context.info("Creating regression plots")
     r_script = get_r_script("visualization", "regression_plot")
     try:

@@ -156,7 +156,7 @@ def rewrite_file_paths_to_exports(context, r_code: str) -> str:
         (r'write\.table\s*\([^,]+,\s*file\s*=\s*(["\'])([^"\']+)\1', 'write.table'),
         # write.xlsx
         (r'write\.xlsx\s*\([^,]+,\s*(["\'])([^"\']+)\1', 'write.xlsx'),
-        (r'write\.xlsx\s*\([^,]+,\s*file\s*=\s*(["\')([^"\']+)\1', 'write.xlsx'),
+        (r'write\.xlsx\s*\([^,]+,\s*file\s*=\s*(["\'])([^"\']+)\1', 'write.xlsx'),
         # saveRDS
         (r'saveRDS\s*\([^,]+,\s*(["\'])([^"\']+)\1', 'saveRDS'),
         (r'saveRDS\s*\([^,]+,\s*file\s*=\s*(["\'])([^"\']+)\1', 'saveRDS'),
@@ -401,6 +401,15 @@ def validate_r_code(r_code: str, context=None) -> tuple[bool, str | None]:
                 "default": False,
                 "description": "Whether to capture and return plot as base64 image",
             },
+            "output_data_name": {
+                "type": "string",
+                "description": (
+                    "Optional name to save the 'result' variable in the R workspace. "
+                    "Use this if you want to reference the result in subsequent tool calls "
+                    "via 'data_name'. The variable 'result' is reserved and gets cleared "
+                    "between tool calls, so use this to persist your data."
+                ),
+            },
         },
         "required": ["r_code", "description"],
     },
@@ -551,6 +560,18 @@ Please respond with your choice. If you approve, the analysis will continue with
         "if (!exists('result')) { "
         "result <- list(error = 'No result variable defined') }"
     )
+
+    # Save result under output_data_name if specified
+    # This allows users to reference the result in subsequent tool calls
+    # since 'result' is a reserved variable that gets cleared between calls
+    output_data_name = params.get("output_data_name")
+    if output_data_name:
+        # Validate the variable name (must be valid R identifier)
+        if re.match(r'^[a-zA-Z][a-zA-Z0-9_.]*$', output_data_name):
+            script_parts.append(f"# Save result as '{output_data_name}' for subsequent tool calls")
+            script_parts.append(f"assign('{output_data_name}', result, envir = .GlobalEnv)")
+        else:
+            logger.warning(f"Invalid output_data_name '{output_data_name}', must be valid R identifier")
 
     # Auto-capture plots when return_image is requested
     if return_image:

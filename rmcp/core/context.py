@@ -56,7 +56,7 @@ class LifespanState:
     # Logging
     current_log_level: str = "info"
     # R Session Management
-    r_session_enabled: bool = False
+    r_session_enabled: bool = True
     r_session_timeout: float = 3600.0  # 1 hour default
     default_r_session_id: str | None = None
 
@@ -215,11 +215,18 @@ class Context:
         Args:
             script: R script to execute
             args: Arguments to pass to script
-            use_session: Whether to use session (if available) or run statelessly
+            use_session: Whether to use session (if available) or run statelessly.
+                         When False, no workspace persistence occurs.
 
         Returns:
             Script execution results
         """
+        from ..r_integration import execute_r_script_async
+
+        # If use_session is False, run without context to disable persistence
+        if not use_session:
+            return await execute_r_script_async(script, args, context=None)
+
         # Determine working directory for exports as requested by the user
         working_directory = None
         session_id = self.get_r_session_id()
@@ -233,28 +240,8 @@ class Context:
             except Exception as e:
                 await self.warn(f"Failed to create export directory: {e}")
 
-        # Try session execution first if enabled and requested
-        if use_session and self.is_r_session_enabled():
-            try:
-                from ..r_session import get_session_manager
-
-                # Use or create session with the determined working directory
-                session_id = await self.get_or_create_r_session(
-                    working_directory=working_directory
-                )
-                if session_id:
-                    session_manager = get_session_manager()
-                    return await session_manager.execute_in_session(
-                        session_id, script, args, self
-                    )
-            except Exception as e:
-                await self.warn(
-                    f"Session execution failed, falling back to stateless: {e}"
-                )
-
-        # Fall back to stateless execution
-        from ..r_integration import execute_r_script_async
-
+        # Execute R script - persistence is handled automatically in execute_r_script_async
+        # if r_session_enabled is True and a session ID is present.
         return await execute_r_script_async(
             script, args, self, working_directory=working_directory
         )

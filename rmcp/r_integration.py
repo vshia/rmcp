@@ -27,6 +27,7 @@ import re
 import subprocess
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,21 @@ from .logging_config import get_logger, log_r_execution
 logger = get_logger(__name__)
 # Global semaphore for R process concurrency (max 4 concurrent R processes)
 R_SEMAPHORE = asyncio.Semaphore(4)
+
+# Per-session locks to prevent .RData race conditions when persistence is enabled.
+# Maps session_id -> asyncio.Lock. Only one R process per session can run at a time
+# when session persistence is enabled, to prevent concurrent load/save.image corruption.
+_SESSION_LOCKS: dict[str, asyncio.Lock] = {}
+_SESSION_LOCKS_LOCK = asyncio.Lock()  # Protects _SESSION_LOCKS dictionary
+
+
+async def _get_session_lock(session_id: str) -> asyncio.Lock:
+    """Get or create a lock for the given session ID."""
+    async with _SESSION_LOCKS_LOCK:
+        if session_id not in _SESSION_LOCKS:
+            _SESSION_LOCKS[session_id] = asyncio.Lock()
+        return _SESSION_LOCKS[session_id]
+
 
 # Cached R binary path for performance
 _R_BINARY_PATH = None
@@ -332,8 +348,6 @@ ENVIRONMENT:
                 # Check for common R package errors
                 if "there is no package called" in stderr:
                     # Extract package name from error
-                    import re
-
                     match = re.search(r"there is no package called '([^']+)'", stderr)
                     if match:
                         missing_pkg = match.group(1)
@@ -424,62 +438,152 @@ async def execute_r_script_async(
     - True async execution using asyncio.create_subprocess_exec
     - Proper subprocess cancellation (SIGTERM -> SIGKILL)
     - Global concurrency limiting via semaphore
+    - Per-session locking when persistence is enabled to prevent .RData corruption
     - Progress reporting from R scripts via context
     - Same interface and error handling as execute_r_script
     Args:
         script: R script code to execute
         args: Arguments to pass to the R script as JSON
         context: Optional context for progress reporting and logging
+        working_directory: Optional working directory for R process
     Returns:
         dict[str, Any]: Result data from R script execution
     Raises:
         RExecutionError: If R script execution fails
         asyncio.CancelledError: If the operation is cancelled
     """
-    async with R_SEMAPHORE:  # Limit concurrent R processes
-        start_time = time.time()
+    # Determine session ID and persistence status early, before acquiring any locks.
+    # This is needed to decide whether to use session-level locking.
+    session_id: str | None = None
+    persistence_enabled = False
+    if context is not None:
+        try:
+            get_session_id = getattr(context, "get_r_session_id", None)
+            session_id = get_session_id() if get_session_id else None
+            if not session_id:
+                session_id = "default"
+            persistence_enabled = getattr(
+                context.lifespan, "r_session_enabled", False
+            ) if hasattr(context, "lifespan") else False
+        except Exception as e:
+            logger.debug("Failed to get session info from context: %s", e)
 
-        # Automatically determine working directory if context has a session ID
-        # and no specific directory was provided. This ensures exports go to
-        # session-specific folders as requested by the user.
-        if working_directory is None and context is not None:
-            try:
-                get_session_id = getattr(context, "get_r_session_id", None)
-                session_id = get_session_id() if get_session_id else "default"
-                if not session_id:
-                    session_id = "default"
+    # When persistence is enabled, use a per-session lock to prevent concurrent
+    # .RData access which can cause corruption. The global R_SEMAPHORE still limits
+    # overall R process concurrency.
+    session_lock = None
+    if persistence_enabled and session_id:
+        session_lock = await _get_session_lock(session_id)
+        logger.debug(f"Using session lock for session {session_id}")
 
-                if session_id:
-                    exports_dir = Path.cwd() / "exports"
-                    exports_dir.mkdir(exist_ok=True)
-                    session_dir = exports_dir / session_id
-                    session_dir.mkdir(parents=True, exist_ok=True)
-                    working_directory = session_dir
-            except Exception as e:
-                logger.warning(f"Failed to auto-create export directory: {e}")
+    # Helper to run the actual R execution
+    async def _execute_r() -> dict[str, Any]:
+        return await _execute_r_script_async_impl(
+            script, args, context, working_directory,
+            session_id, persistence_enabled
+        )
 
-        # Create temporary files for script, arguments, and results
-        with (
-            tempfile.NamedTemporaryFile(
-                suffix=".R", delete=False, mode="w"
-            ) as script_file,
-            tempfile.NamedTemporaryFile(
-                suffix=".json", delete=False, mode="w"
-            ) as args_file,
-            tempfile.NamedTemporaryFile(suffix=".json", delete=False) as result_file,
-        ):
-            script_path = script_file.name
-            args_path = args_file.name
-            result_path = result_file.name
-            try:
-                # Write arguments to JSON file
-                json.dump(args, args_file, default=str)
-                args_file.flush()
-                # Normalize path for Windows compatibility
-                args_path_safe = args_path.replace("\\", "/")
-                result_path_safe = result_path.replace("\\", "/")
-                # Create complete R script with progress reporting
-                full_script = f"""
+    # Acquire locks in the correct order: session lock (if needed) then global semaphore
+    if session_lock:
+        async with session_lock:
+            async with R_SEMAPHORE:
+                return await _execute_r()
+    else:
+        async with R_SEMAPHORE:
+            return await _execute_r()
+
+
+async def _execute_r_script_async_impl(
+    script: str,
+    args: dict[str, Any],
+    context: Any,
+    working_directory: Path | None,
+    session_id: str | None,
+    persistence_enabled: bool,
+) -> dict[str, Any]:
+    """
+    Internal implementation of async R script execution.
+
+    This is separated from execute_r_script_async to allow proper lock management
+    in the outer function.
+    """
+    start_time = time.time()
+
+    # Automatically determine working directory if context has a session ID
+    # and no specific directory was provided. This ensures exports go to
+    # session-specific folders as requested by the user.
+    if working_directory is None and session_id:
+        try:
+            exports_dir = Path.cwd() / "exports"
+            exports_dir.mkdir(exist_ok=True)
+            session_dir = exports_dir / session_id
+            session_dir.mkdir(parents=True, exist_ok=True)
+            working_directory = session_dir
+        except Exception as e:
+            logger.warning(f"Failed to auto-create export directory: {e}")
+
+    # Create temporary files for script, arguments, and results
+    with (
+        tempfile.NamedTemporaryFile(
+            suffix=".R", delete=False, mode="w"
+        ) as script_file,
+        tempfile.NamedTemporaryFile(
+            suffix=".json", delete=False, mode="w"
+        ) as args_file,
+        tempfile.NamedTemporaryFile(suffix=".json", delete=False) as result_file,
+    ):
+        script_path = script_file.name
+        args_path = args_file.name
+        result_path = result_file.name
+        try:
+            # Generate a unique nonce to verify result freshness.
+            # This prevents returning stale results from previous script runs.
+            result_nonce = str(uuid.uuid4())
+
+            # Add nonce to args (copy to avoid modifying original)
+            args_with_nonce = args.copy()
+            args_with_nonce["_rmcp_nonce"] = result_nonce
+
+            # Write arguments to JSON file (with nonce included)
+            json.dump(args_with_nonce, args_file, default=str)
+            args_file.flush()
+            # Normalize path for Windows compatibility
+            args_path_safe = args_path.replace("\\", "/")
+            result_path_safe = result_path.replace("\\", "/")
+
+            # Prepare session persistence code if enabled
+            persistence_before = ""
+            persistence_after = ""
+            if session_id and context and persistence_enabled:
+                # Load existing workspace if it exists, then remove 'result' variable
+                # to ensure we don't return stale results from previous script runs.
+                # Also remove any internal rmcp variables to keep workspace clean.
+                persistence_before = (
+                    'if (file.exists(".RData")) { load(".RData", envir = .GlobalEnv); '
+                    'if (exists("result", envir = .GlobalEnv)) rm(result, envir = .GlobalEnv); '
+                    'rm(list = ls(pattern = "^\\\\.rmcp_", all.names = TRUE), envir = .GlobalEnv) }\n'
+                )
+                # Save workspace after script execution, EXCLUDING 'result' to prevent stale
+                # results from being persisted. Uses atomic write pattern (write to temp file,
+                # then rename) to prevent corruption. On Windows, file.rename may fail if
+                # destination exists, so we use file.copy as fallback.
+                persistence_after = (
+                    'tryCatch({ '
+                    '.rmcp_temp <- tempfile(pattern = ".RData_", tmpdir = ".", fileext = ".tmp"); '
+                    '.rmcp_save_vars <- setdiff(ls(all.names = TRUE), c("result", ".rmcp_temp", ".rmcp_save_vars")); '
+                    'if (length(.rmcp_save_vars) > 0) { '
+                    'save(list = .rmcp_save_vars, file = .rmcp_temp, envir = .GlobalEnv); '
+                    'if (!file.rename(.rmcp_temp, ".RData")) { '
+                    'if (file.exists(".RData")) file.remove(".RData"); '
+                    'if (!file.rename(.rmcp_temp, ".RData") && file.exists(.rmcp_temp)) { '
+                    'file.copy(.rmcp_temp, ".RData", overwrite = TRUE); '
+                    'unlink(.rmcp_temp) } } '
+                    '} else { if (file.exists(".RData")) file.remove(".RData") } '
+                    '}, error = function(e) NULL)\n'
+                )
+
+            # Create complete R script with progress reporting
+            full_script = f"""
 # Load required libraries
 library(jsonlite)
 # Define null-coalescing operator (from rlang, defined locally to avoid dependency)
@@ -499,60 +603,65 @@ rmcp_progress <- function(message, current = NULL, total = NULL) {{
     cat("RMCP_PROGRESS:", toJSON(progress_data, auto_unbox = TRUE), "\\n", file = stderr())
     flush(stderr())
 }}
+{persistence_before}
 # Load arguments
 args <- fromJSON("{args_path_safe}")
 # User script
 {script}
-# Write result
+# Verify result exists and add nonce for freshness validation
+{persistence_after}
 if (exists("result")) {{
+    # Add nonce to result for Python-side verification (prevents stale result bugs)
+    if (is.list(result)) {{
+        result$`_rmcp_nonce` <- args$`_rmcp_nonce`
+    }}
     writeLines(toJSON(result, auto_unbox = TRUE, na = "null", pretty = TRUE), "{result_path_safe}")
 }} else {{
     stop("R script must define a 'result' variable")
 }}
 """
-                # Write R script to file
-                script_file.write(full_script)
-                script_file.flush()
-                logger.debug(f"Executing R script asynchronously with args: {args}")
-                # Execute R script asynchronously
-                r_binary = get_r_binary_path()
-                proc = await asyncio.create_subprocess_exec(
-                    r_binary,
-                    "--slave",
-                    "--no-restore",
-                    f"--file={script_path}",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=working_directory,
-                )
-                try:
-                    # Monitor stderr for progress messages and collect output
-                    stderr_lines = []
-                    stdout_chunks = []
+            # Write R script to file
+            script_file.write(full_script)
+            script_file.flush()
+            logger.debug(f"Executing R script asynchronously with args: {args}")
+            # Execute R script asynchronously
+            r_binary = get_r_binary_path()
+            proc = await asyncio.create_subprocess_exec(
+                r_binary,
+                "--slave",
+                "--no-restore",
+                f"--file={script_path}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=working_directory,
+            )
+            try:
+                # Monitor stderr for progress messages and collect output
+                stderr_lines = []
+                stdout_chunks = []
 
-                    async def read_stdout():
-                        """Read stdout to completion."""
-                        assert proc.stdout is not None
-                        while True:
-                            chunk = await proc.stdout.read(1024)
-                            if not chunk:
-                                break
-                            stdout_chunks.append(chunk)
+                async def read_stdout():
+                    """Read stdout to completion."""
+                    assert proc.stdout is not None
+                    while True:
+                        chunk = await proc.stdout.read(1024)
+                        if not chunk:
+                            break
+                        stdout_chunks.append(chunk)
 
-                    async def monitor_stderr():
-                        """Monitor stderr for progress messages and errors."""
-                        assert proc.stderr is not None
-                        while True:
-                            line = await proc.stderr.readline()
-                            if not line:
-                                break
-                            line_str = line.decode("utf-8").strip()
-                            stderr_lines.append(line_str)
-                            # Parse progress messages if context is available
-                            if context and line_str.startswith("RMCP_PROGRESS:"):
+                async def monitor_stderr():
+                    """Monitor stderr for progress messages and errors."""
+                    assert proc.stderr is not None
+                    while True:
+                        line = await proc.stderr.readline()
+                        if not line:
+                            break
+                        line_str = line.decode("utf-8").strip()
+                        stderr_lines.append(line_str)
+                        # Parse progress messages if context is available
+                        if line_str.startswith("RMCP_PROGRESS:"):
+                            if context:
                                 try:
-                                    import json
-
                                     progress_json = line_str[
                                         14:
                                     ]  # Remove "RMCP_PROGRESS:" prefix
@@ -575,55 +684,101 @@ if (exists("result")) {{
                                         f"Failed to parse progress message: {e}"
                                     )
 
-                    # Run stdout and stderr monitoring concurrently using TaskGroup (Python 3.11+)
-                    async with asyncio.TaskGroup() as tg:
-                        tg.create_task(read_stdout())
-                        tg.create_task(monitor_stderr())
-                        tg.create_task(
-                            asyncio.wait_for(
-                                proc.wait(), timeout=get_config().r.timeout
-                            )
+                # Run stdout and stderr monitoring concurrently using TaskGroup (Python 3.11+)
+                async with asyncio.TaskGroup() as tg:
+                    tg.create_task(read_stdout())
+                    tg.create_task(monitor_stderr())
+                    tg.create_task(
+                        asyncio.wait_for(
+                            proc.wait(), timeout=get_config().r.timeout
                         )
-                    # Combine output
-                    stdout = (
-                        b"".join(stdout_chunks).decode("utf-8") if stdout_chunks else ""
                     )
-                    stderr = "\n".join(stderr_lines) if stderr_lines else ""
-                except asyncio.CancelledError:
-                    logger.info("R script execution cancelled, terminating process")
-                    # Graceful termination: SIGTERM first, then SIGKILL
-                    proc.terminate()
-                    try:
-                        await asyncio.wait_for(proc.wait(), timeout=0.5)
-                    except TimeoutError:
-                        logger.warning("R process didn't terminate gracefully, killing")
-                        proc.kill()
-                        await proc.wait()
-                    raise
+                # Combine output
+                stdout = (
+                    b"".join(stdout_chunks).decode("utf-8") if stdout_chunks else ""
+                )
+                stderr = "\n".join(stderr_lines) if stderr_lines else ""
+            except asyncio.CancelledError:
+                logger.info("R script execution cancelled, terminating process")
+                # Graceful termination: SIGTERM first, then SIGKILL
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=0.5)
                 except TimeoutError:
-                    logger.error("R script execution timed out")
+                    logger.warning("R process didn't terminate gracefully, killing")
                     proc.kill()
                     await proc.wait()
-                    raise RExecutionError(
-                        "R script execution timed out after 120 seconds",
-                        stdout="",
-                        stderr="Execution timed out",
-                        returncode=-1,
-                    )
-                if proc.returncode != 0:
-                    # Enhanced error handling for missing packages
-                    try:
-                        r_path = get_r_binary_path()
-                    except FileNotFoundError:
-                        r_path = "R (not found in PATH)"
-                    env_info = {
-                        "PATH": os.environ.get("PATH", ""),
-                        "R_HOME": os.environ.get("R_HOME", ""),
-                        "R_LIBS": os.environ.get("R_LIBS", ""),
-                        "working_dir": str(Path.cwd()),
-                    }
+                raise
+            except TimeoutError:
+                logger.error("R script execution timed out")
+                proc.kill()
+                await proc.wait()
+                raise RExecutionError(
+                    "R script execution timed out after 120 seconds",
+                    stdout="",
+                    stderr="Execution timed out",
+                    returncode=-1,
+                )
+            # First, try to read the result file regardless of return code.
+            # This handles cases where R exits with non-zero code due to warnings
+            # or non-fatal issues, but still produces valid output.
+            result_valid = False
+            result = None
+            try:
+                if Path(result_path).exists() and Path(result_path).stat().st_size > 0:
+                    with open(result_path) as f:
+                        result_json = f.read()
+                        result = json.loads(result_json)
+                        result_valid = True
 
-                    error_msg = f"""R script failed with return code {proc.returncode}
+                        # Validate nonce to ensure result is fresh (not stale from previous run)
+                        if isinstance(result, dict):
+                            received_nonce = result.pop("_rmcp_nonce", None)
+                            if received_nonce != result_nonce:
+                                logger.error(
+                                    f"Result nonce mismatch: expected {result_nonce}, "
+                                    f"got {received_nonce}. Possible stale result."
+                                )
+                                raise RExecutionError(
+                                    "Result verification failed: received stale or corrupted result. "
+                                    "The result does not match the current script execution.",
+                                    stdout="",
+                                    stderr="Nonce mismatch - stale result detected",
+                                    returncode=-1,
+                                )
+            except (FileNotFoundError, json.JSONDecodeError, OSError):
+                pass
+
+            # If we got valid results but R had non-zero exit, log warning and return
+            if proc.returncode != 0 and result_valid:
+                logger.warning(
+                    f"R script exited with code {proc.returncode} but produced valid output. "
+                    f"Stderr: {stderr[:500] if stderr else '(empty)'}"
+                )
+                # Log structured R execution completion
+                execution_time_ms = int((time.time() - start_time) * 1000)
+                log_r_execution(
+                    logger,
+                    r_command=script[:100] + "..." if len(script) > 100 else script,
+                    execution_time_ms=execution_time_ms,
+                    success=True,
+                )
+                return result
+
+            if proc.returncode != 0:
+                # Enhanced error handling for missing packages
+                try:
+                    r_path = get_r_binary_path()
+                except FileNotFoundError:
+                    r_path = "R (not found in PATH)"
+                env_info = {
+                    "PATH": os.environ.get("PATH", ""),
+                    "R_HOME": os.environ.get("R_HOME", ""),
+                    "R_LIBS": os.environ.get("R_LIBS", ""),
+                    "working_dir": str(Path.cwd()),
+                }
+
+                error_msg = f"""R script failed with return code {proc.returncode}
 COMMAND: {r_path} --slave --no-restore --file={script_path}
 STDOUT:
 {stdout or "(empty)"}
@@ -631,80 +786,76 @@ STDERR:
 {stderr or "(empty)"}
 ENVIRONMENT:
 {env_info}"""
-                    stderr = stderr or ""
-                    # Check for common R package errors
-                    if "there is no package called" in stderr:
-                        # Extract package name from error
-                        import re
-
-                        match = re.search(
-                            r"there is no package called '([^']+)'", stderr
+                stderr = stderr or ""
+                # Check for common R package errors
+                if "there is no package called" in stderr:
+                    # Extract package name from error
+                    match = re.search(
+                        r"there is no package called '([^']+)'", stderr
+                    )
+                    if match:
+                        missing_pkg = match.group(1)
+                        # Map package to feature category
+                        pkg_features = {
+                            "plm": "Panel Data Analysis",
+                            "lmtest": "Statistical Testing",
+                            "sandwich": "Robust Standard Errors",
+                            "AER": "Applied Econometrics",
+                            "jsonlite": "Data Exchange",
+                            "forecast": "Time Series Forecasting",
+                            "vars": "Vector Autoregression",
+                            "urca": "Unit Root Testing",
+                            "tseries": "Time Series Analysis",
+                            "nortest": "Normality Testing",
+                            "car": "Regression Diagnostics",
+                            "rpart": "Decision Trees",
+                            "randomForest": "Random Forest",
+                            "ggplot2": "Data Visualization",
+                            "gridExtra": "Plot Layouts",
+                            "tidyr": "Data Tidying",
+                            "rlang": "Programming Tools",
+                            "dplyr": "Data Manipulation",
+                        }
+                        feature = pkg_features.get(
+                            missing_pkg, "Statistical Analysis"
                         )
-                        if match:
-                            missing_pkg = match.group(1)
-                            # Map package to feature category
-                            pkg_features = {
-                                "plm": "Panel Data Analysis",
-                                "lmtest": "Statistical Testing",
-                                "sandwich": "Robust Standard Errors",
-                                "AER": "Applied Econometrics",
-                                "jsonlite": "Data Exchange",
-                                "forecast": "Time Series Forecasting",
-                                "vars": "Vector Autoregression",
-                                "urca": "Unit Root Testing",
-                                "tseries": "Time Series Analysis",
-                                "nortest": "Normality Testing",
-                                "car": "Regression Diagnostics",
-                                "rpart": "Decision Trees",
-                                "randomForest": "Random Forest",
-                                "ggplot2": "Data Visualization",
-                                "gridExtra": "Plot Layouts",
-                                "tidyr": "Data Tidying",
-                                "rlang": "Programming Tools",
-                                "dplyr": "Data Manipulation",
-                            }
-                            feature = pkg_features.get(
-                                missing_pkg, "Statistical Analysis"
-                            )
-                            error_msg = f"""❌ Missing R Package: '{missing_pkg}'
+                        error_msg = f"""❌ Missing R Package: '{missing_pkg}'
 🔍 This package is required for: {feature}
 📦 Install with:
    R -e "install.packages('{missing_pkg}')"
 💡 Check package status: rmcp check-r-packages"""
-                        raise RExecutionError(
-                            error_msg,
-                            stdout=stdout,
-                            stderr=stderr,
-                            returncode=proc.returncode or 0,
+                    raise RExecutionError(
+                        error_msg,
+                        stdout=stdout,
+                        stderr=stderr,
+                        returncode=proc.returncode or 0,
+                    )
+
+                # Enhanced error detection for statistical issues
+                combined_output = (stdout + stderr).lower()
+
+                if any(
+                    phrase in combined_output
+                    for phrase in [
+                        "insufficient data",
+                        "insufficient degrees",
+                        "need at least",
+                        "requires at least",
+                        "sample size",
+                    ]
+                ):
+                    # Extract context from R stderr if available
+                    context_info = ""
+                    if stderr and "parameters but only" in stderr:
+                        # Try to extract parameter and observation counts
+                        match = re.search(
+                            r"(\d+) parameters but only (\d+) observations", stderr
                         )
+                        if match:
+                            params, obs = match.groups()
+                            context_info = f"\n📋 Analysis details: {params} parameters, {obs} observations"
 
-                    # Enhanced error detection for statistical issues
-                    combined_output = (stdout + stderr).lower()
-
-                    if any(
-                        phrase in combined_output
-                        for phrase in [
-                            "insufficient data",
-                            "insufficient degrees",
-                            "need at least",
-                            "requires at least",
-                            "sample size",
-                        ]
-                    ):
-                        # Extract context from R stderr if available
-                        context_info = ""
-                        if stderr and "parameters but only" in stderr:
-                            # Try to extract parameter and observation counts
-                            import re
-
-                            match = re.search(
-                                r"(\d+) parameters but only (\d+) observations", stderr
-                            )
-                            if match:
-                                params, obs = match.groups()
-                                context_info = f"\n📋 Analysis details: {params} parameters, {obs} observations"
-
-                        helpful_msg = f"""❌ Insufficient Data for Statistical Analysis
+                    helpful_msg = f"""❌ Insufficient Data for Statistical Analysis
 
 🔍 The analysis requires more data points than provided.{context_info}
 
@@ -720,22 +871,22 @@ ENVIRONMENT:
 
 Original error:
 {error_msg}"""
-                        raise RExecutionError(
-                            helpful_msg,
-                            stdout=stdout,
-                            stderr=stderr,
-                            returncode=proc.returncode or 0,
-                        )
+                    raise RExecutionError(
+                        helpful_msg,
+                        stdout=stdout,
+                        stderr=stderr,
+                        returncode=proc.returncode or 0,
+                    )
 
-                    if any(
-                        phrase in combined_output
-                        for phrase in [
-                            "degrees of freedom",
-                            "non-numeric argument",
-                            "nans produced",
-                        ]
-                    ):
-                        helpful_msg = f"""❌ Statistical Computation Error
+                if any(
+                    phrase in combined_output
+                    for phrase in [
+                        "degrees of freedom",
+                        "non-numeric argument",
+                        "nans produced",
+                    ]
+                ):
+                    helpful_msg = f"""❌ Statistical Computation Error
 
 🔍 The analysis encountered a mathematical issue, often due to:
    • Insufficient degrees of freedom (too few observations vs parameters)
@@ -749,74 +900,114 @@ Original error:
 
 Original error:
 {error_msg}"""
-                        raise RExecutionError(
-                            helpful_msg,
-                            stdout=stdout,
-                            stderr=stderr,
-                            returncode=proc.returncode or 0,
-                        )
-
-                    # Fall back to general error
                     raise RExecutionError(
-                        error_msg,
+                        helpful_msg,
                         stdout=stdout,
                         stderr=stderr,
                         returncode=proc.returncode or 0,
                     )
-                # Read and parse results
-                try:
-                    with open(result_path) as f:
-                        result_json = f.read()
-                        result = json.loads(result_json)
-                        result_info = (
-                            list(result.keys())
-                            if isinstance(result, dict)
-                            else type(result)
-                        )
-                        # Log structured R execution completion
-                        execution_time_ms = int((time.time() - start_time) * 1000)
-                        log_r_execution(
-                            logger,
-                            r_command=script[:100] + "..."
-                            if len(script) > 100
-                            else script,
-                            execution_time_ms=execution_time_ms,
-                            success=True,
-                        )
 
-                        logger.debug(
-                            f"R script completed successfully, result keys: {result_info}"
-                        )
-                        return result
-                except (FileNotFoundError, json.JSONDecodeError) as e:
-                    # Log structured R execution failure
+                # Fall back to general error
+                raise RExecutionError(
+                    error_msg,
+                    stdout=stdout,
+                    stderr=stderr,
+                    returncode=proc.returncode or 0,
+                )
+            # Read and parse results (reuse result if already read above)
+            if result_valid and result is not None:
+                result_info = (
+                    list(result.keys())
+                    if isinstance(result, dict)
+                    else type(result)
+                )
+                # Log structured R execution completion
+                execution_time_ms = int((time.time() - start_time) * 1000)
+                log_r_execution(
+                    logger,
+                    r_command=script[:100] + "..."
+                    if len(script) > 100
+                    else script,
+                    execution_time_ms=execution_time_ms,
+                    success=True,
+                )
+
+                logger.debug(
+                    f"R script completed successfully, result keys: {result_info}"
+                )
+                return result
+
+            # Try to read result file (fallback if not already read)
+            try:
+                with open(result_path) as f:
+                    result_json = f.read()
+                    result = json.loads(result_json)
+
+                    # Validate nonce to ensure result is fresh (not stale from previous run)
+                    if isinstance(result, dict):
+                        received_nonce = result.pop("_rmcp_nonce", None)
+                        if received_nonce != result_nonce:
+                            logger.error(
+                                f"Result nonce mismatch: expected {result_nonce}, "
+                                f"got {received_nonce}. Possible stale result."
+                            )
+                            raise RExecutionError(
+                                "Result verification failed: received stale or corrupted result. "
+                                "The result does not match the current script execution.",
+                                stdout=stdout,
+                                stderr="Nonce mismatch - stale result detected",
+                                returncode=-1,
+                            )
+
+                    result_info = (
+                        list(result.keys())
+                        if isinstance(result, dict)
+                        else type(result)
+                    )
+                    # Log structured R execution completion
                     execution_time_ms = int((time.time() - start_time) * 1000)
                     log_r_execution(
                         logger,
-                        r_command=script[:100] + "..." if len(script) > 100 else script,
+                        r_command=script[:100] + "..."
+                        if len(script) > 100
+                        else script,
                         execution_time_ms=execution_time_ms,
-                        success=False,
-                        error_message=str(e),
+                        success=True,
                     )
 
-                    error_msg = (
-                        f"Failed to read or parse R script results: {e}\\n\\n"
-                        f"R stdout: {stdout}\\n\\nR stderr: {stderr}"
+                    logger.debug(
+                        f"R script completed successfully, result keys: {result_info}"
                     )
-                    raise RExecutionError(
-                        error_msg,
-                        stdout=stdout,
-                        stderr=stderr,
-                        returncode=proc.returncode or 0,
-                    )
-            finally:
-                # Cleanup temporary files
-                for temp_path in [script_path, args_path, result_path]:
-                    try:
-                        os.unlink(temp_path)
-                        logger.debug(f"Cleaned up temporary file: {temp_path}")
-                    except OSError:
-                        pass
+                    return result
+            except (FileNotFoundError, json.JSONDecodeError) as e:
+                # Log structured R execution failure
+                execution_time_ms = int((time.time() - start_time) * 1000)
+                log_r_execution(
+                    logger,
+                    r_command=script[:100] + "..." if len(script) > 100 else script,
+                    execution_time_ms=execution_time_ms,
+                    success=False,
+                    error_message=str(e),
+                )
+
+                error_msg = (
+                    f"Failed to read or parse R script results: {e}\\n\\n"
+                    f"R stdout: {stdout}\\n\\nR stderr: {stderr}"
+                )
+                raise RExecutionError(
+                    error_msg,
+                    stdout=stdout,
+                    stderr=stderr,
+                    returncode=proc.returncode or 0,
+                )
+        finally:
+            # Cleanup temporary files
+            for temp_path in [script_path, args_path, result_path]:
+                try:
+                    os.unlink(temp_path)
+                    logger.debug(f"Cleaned up temporary file: {temp_path}")
+                except OSError:
+                    pass
 
 
 def get_r_image_encoder_script() -> str:

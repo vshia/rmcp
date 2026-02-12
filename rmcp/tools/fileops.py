@@ -1,6 +1,10 @@
 """
 File operations tools for RMCP.
 Data import, export, and file manipulation capabilities.
+
+Tools that use 'data' parameter support session-aware data loading:
+- Pass data inline via the 'data' parameter, OR
+- Reference a workspace object via the 'data_name' parameter
 """
 
 import os
@@ -17,11 +21,12 @@ from ..core.schemas import table_schema
 from ..r_assets.loader import get_r_script
 from ..r_integration import execute_r_script_async
 from ..registries.tools import tool
+from .session_data import add_data_name_param, add_output_data_name_param
 
 
 @tool(
     name="read_csv",
-    input_schema={
+    input_schema=add_output_data_name_param({
         "type": "object",
         "properties": {
             "file_path": {"type": "string"},
@@ -36,7 +41,7 @@ from ..registries.tools import tool
             "max_rows": {"type": "integer", "minimum": 1},
         },
         "required": ["file_path"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -101,7 +106,7 @@ from ..registries.tools import tool
         "required": ["data", "file_info", "parsing_info", "summary"],
         "additionalProperties": False,
     },
-    description="Reads CSV (Comma-Separated Values) files with flexible parsing options including custom separators, header handling, missing value specifications, and row/column selection. Automatically detects data types and handles various CSV formats. Use for importing datasets, loading experimental data, processing survey results, or reading any tabular data stored in CSV format. Essential first step in most data analysis workflows.",
+    description="Reads CSV files with flexible parsing options. Use 'output_data_name' to save the loaded data to the R workspace for use in subsequent tool calls (e.g., output_data_name='my_data'). Later tools can then reference this data via 'data_name' instead of passing raw data. Supports custom separators, header handling, missing value specifications, and row/column selection.",
 )
 async def read_csv(context, params) -> dict[str, Any]:
     """Read CSV file and return data."""
@@ -124,7 +129,7 @@ async def read_csv(context, params) -> dict[str, Any]:
 
 @tool(
     name="write_csv",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -134,7 +139,7 @@ async def read_csv(context, params) -> dict[str, Any]:
             "append": {"type": "boolean", "default": False},
         },
         "required": ["data", "file_path"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -196,7 +201,7 @@ async def write_csv(context, params) -> dict[str, Any]:
 
 @tool(
     name="write_excel",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -205,7 +210,7 @@ async def write_csv(context, params) -> dict[str, Any]:
             "include_rownames": {"type": "boolean", "default": False},
         },
         "required": ["data", "file_path"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -272,7 +277,7 @@ async def write_excel(context, params) -> dict[str, Any]:
 
 @tool(
     name="data_info",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -285,7 +290,7 @@ async def write_excel(context, params) -> dict[str, Any]:
             },
         },
         "required": ["data"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -370,7 +375,7 @@ async def data_info(context, params) -> dict[str, Any]:
 
 @tool(
     name="filter_data",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -392,7 +397,7 @@ async def data_info(context, params) -> dict[str, Any]:
             "logic": {"type": "string", "enum": ["AND", "OR"], "default": "AND"},
         },
         "required": ["data", "conditions"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -459,7 +464,7 @@ async def filter_data(context, params) -> dict[str, Any]:
 
 @tool(
     name="read_excel",
-    input_schema={
+    input_schema=add_output_data_name_param({
         "type": "object",
         "properties": {
             "file_path": {"type": "string"},
@@ -481,7 +486,7 @@ async def filter_data(context, params) -> dict[str, Any]:
             },
         },
         "required": ["file_path"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -531,7 +536,7 @@ async def filter_data(context, params) -> dict[str, Any]:
         "required": ["data", "file_info", "summary"],
         "additionalProperties": False,
     },
-    description="Reads Excel files (.xlsx, .xls) with flexible options for sheet selection, cell ranges, header detection, and data type specification. Handles multiple worksheets and complex Excel formatting. Use for importing business data, reading formatted reports, processing multi-sheet workbooks, or accessing data stored in Excel's native format with preserving original structure.",
+    description="Reads Excel files (.xlsx, .xls). Use 'output_data_name' to save the loaded data to the R workspace for use in subsequent tool calls. Later tools can reference this data via 'data_name' instead of passing raw data. Supports sheet selection, cell ranges, and header detection.",
 )
 async def read_excel(context, params) -> dict[str, Any]:
     """Read Excel file and return data."""
@@ -554,7 +559,7 @@ async def read_excel(context, params) -> dict[str, Any]:
 
 @tool(
     name="read_json",
-    input_schema={
+    input_schema=add_output_data_name_param({
         "type": "object",
         "properties": {
             "file_path": {"type": "string"},
@@ -576,7 +581,7 @@ async def read_excel(context, params) -> dict[str, Any]:
             },
         },
         "required": ["file_path"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -625,7 +630,7 @@ async def read_excel(context, params) -> dict[str, Any]:
         "required": ["data", "file_info", "summary"],
         "additionalProperties": False,
     },
-    description="Reads JSON files and intelligently converts nested structures to tabular format suitable for statistical analysis. Handles nested objects, arrays, and mixed data types with flexible flattening options. Use for importing API responses, web scraping results, NoSQL database exports, or any hierarchical data that needs conversion to rectangular format for analysis.",
+    description="Reads JSON files and converts nested structures to tabular format. Use 'output_data_name' to save the loaded data to the R workspace for use in subsequent tool calls. Later tools can reference this data via 'data_name' instead of passing raw data. Handles nested objects, arrays, and mixed data types.",
 )
 async def read_json(context, params) -> dict[str, Any]:
     """Read JSON file and return data."""
@@ -648,7 +653,7 @@ async def read_json(context, params) -> dict[str, Any]:
 
 @tool(
     name="write_json",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -657,7 +662,7 @@ async def read_json(context, params) -> dict[str, Any]:
             "auto_unbox": {"type": "boolean", "default": True},
         },
         "required": ["data", "file_path"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -786,7 +791,7 @@ async def upload_file_to_cloud(context, params) -> dict[str, Any]:
     # Load AWS configuration from config file and environment variables
     # Priority: config file > environment variables > defaults
     config = get_config()
-    aws_config = config.get("aws", {}) if isinstance(config, dict) else {}
+    aws_config = config.aws or {}
 
     bucket_name = aws_config.get("s3_bucket") or os.getenv("AWS_S3_BUCKET")
     aws_access_key = aws_config.get("access_key_id") or os.getenv("AWS_ACCESS_KEY_ID")

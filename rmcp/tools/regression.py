@@ -23,11 +23,12 @@ from ..core.schemas import formula_schema, table_schema
 from ..r_assets.loader import get_r_script
 from ..r_integration import execute_r_script_async
 from ..registries.tools import tool
+from .session_data import add_data_name_param
 
 
 @tool(
     name="linear_model",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(required_columns=None),
@@ -39,7 +40,7 @@ from ..registries.tools import tool
             },
         },
         "required": ["data", "formula"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -117,7 +118,7 @@ from ..registries.tools import tool
         "required": ["coefficients", "r_squared", "n_obs", "method"],
         "additionalProperties": False,
     },
-    description="Performs ordinary least squares (OLS) linear regression to model relationships between a dependent variable and one or more predictors. Returns coefficients with standard errors, confidence intervals, R-squared, F-statistic, and comprehensive diagnostic statistics including residuals and fitted values. Use for prediction, inference, understanding linear relationships, or testing hypotheses about continuous outcomes. Handles missing values and supports weighted observations.",
+    description="Performs OLS linear regression. Use 'data_name' to reference data already in the R workspace instead of passing raw data. Returns coefficients, R-squared, F-statistic, and diagnostics. Handles missing values and supports weighted observations.",
 )
 async def linear_model(context, params) -> dict[str, Any]:
     """
@@ -195,7 +196,7 @@ async def linear_model(context, params) -> dict[str, Any]:
 
 @tool(
     name="correlation_analysis",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -222,7 +223,7 @@ async def linear_model(context, params) -> dict[str, Any]:
             },
         },
         "required": ["data"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -343,7 +344,7 @@ async def correlation_analysis(context, params) -> dict[str, Any]:
 
 @tool(
     name="logistic_regression",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -360,7 +361,7 @@ async def correlation_analysis(context, params) -> dict[str, Any]:
             },
         },
         "required": ["data", "formula"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {

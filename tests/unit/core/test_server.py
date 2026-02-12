@@ -28,6 +28,8 @@ def test_dependencies():
         print("❌ jsonschema missing - install with: pip install jsonschema")
         raise AssertionError("jsonschema missing")
 
+    return True
+
 
 def test_basic_server_import():
     """Test that the server can be imported without errors."""
@@ -48,6 +50,7 @@ def test_basic_server_import():
         # Try to create basic server
         create_server()
         print("✅ Server created successfully")
+        return True
     except ImportError as e:
         print(f"❌ Import error: {e}")
         raise AssertionError(f"Import error: {e}")

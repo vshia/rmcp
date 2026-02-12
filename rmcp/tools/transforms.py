@@ -1,6 +1,10 @@
 """
 Data transformation tools for RMCP.
 Essential data manipulation and cleaning capabilities.
+
+All tools in this module support session-aware data loading:
+- Pass data inline via the 'data' parameter, OR
+- Reference a workspace object via the 'data_name' parameter
 """
 
 from typing import Any
@@ -9,20 +13,23 @@ from ..core.schemas import table_schema
 from ..r_assets.loader import get_r_script
 from ..r_integration import execute_r_script_async
 from ..registries.tools import tool
+from .session_data import add_data_name_param, add_output_data_name_param
 
 
 @tool(
     name="lag_lead",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "data": table_schema(),
-            "variables": {"type": "array", "items": {"type": "string"}},
-            "lags": {"type": "array", "items": {"type": "integer"}},
-            "leads": {"type": "array", "items": {"type": "integer"}},
-        },
-        "required": ["data", "variables"],
-    },
+    input_schema=add_output_data_name_param(
+        add_data_name_param({
+            "type": "object",
+            "properties": {
+                "data": table_schema(),
+                "variables": {"type": "array", "items": {"type": "string"}},
+                "lags": {"type": "array", "items": {"type": "integer"}},
+                "leads": {"type": "array", "items": {"type": "integer"}},
+            },
+            "required": ["data", "variables"],
+        })
+    ),
     output_schema={
         "type": "object",
         "properties": {
@@ -53,7 +60,7 @@ from ..registries.tools import tool
         "required": ["data", "variables_created", "n_obs", "operation"],
         "additionalProperties": False,
     },
-    description="Creates lagged (past values) and lead (future values) variables for time series analysis and panel data. Supports multiple lags/leads simultaneously and handles missing values appropriately. Essential for autoregressive models, studying temporal dependencies, creating predictor variables from time series, or analyzing causality relationships. Use for ARIMA preprocessing, econometric modeling, or feature engineering in time-dependent data.",
+    description="Creates lagged (past) and lead (future) variables. Use 'data_name' to reference data already in the R workspace instead of passing raw data. Use 'output_data_name' to save the transformed result for subsequent tool calls. Essential for ARIMA preprocessing, autoregressive models, and feature engineering in time-dependent data.",
 )
 async def lag_lead(context, params) -> dict[str, Any]:
     """Create lagged and lead variables."""
@@ -71,22 +78,24 @@ async def lag_lead(context, params) -> dict[str, Any]:
 
 @tool(
     name="winsorize",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "data": table_schema(),
-            "variables": {"type": "array", "items": {"type": "string"}},
-            "percentiles": {
-                "type": "array",
-                "items": {"type": "number", "minimum": 0, "maximum": 1},
-                "minItems": 2,
-                "maxItems": 2,
-                "default": [0.05, 0.95],
-                "description": "Lower and upper percentiles for winsorization [lower, upper]",
+    input_schema=add_output_data_name_param(
+        add_data_name_param({
+            "type": "object",
+            "properties": {
+                "data": table_schema(),
+                "variables": {"type": "array", "items": {"type": "string"}},
+                "percentiles": {
+                    "type": "array",
+                    "items": {"type": "number", "minimum": 0, "maximum": 1},
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "default": [0.05, 0.95],
+                    "description": "Lower and upper percentiles for winsorization [lower, upper]",
+                },
             },
-        },
-        "required": ["data", "variables"],
-    },
+            "required": ["data", "variables"],
+        })
+    ),
     output_schema={
         "type": "object",
         "properties": {
@@ -155,16 +164,18 @@ async def winsorize(context, params) -> dict[str, Any]:
 
 @tool(
     name="difference",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "data": table_schema(),
-            "variables": {"type": "array", "items": {"type": "string"}},
-            "order": {"type": "integer", "minimum": 1, "maximum": 3, "default": 1},
-            "log_transform": {"type": "boolean", "default": False},
-        },
-        "required": ["data", "variables"],
-    },
+    input_schema=add_output_data_name_param(
+        add_data_name_param({
+            "type": "object",
+            "properties": {
+                "data": table_schema(),
+                "variables": {"type": "array", "items": {"type": "string"}},
+                "order": {"type": "integer", "minimum": 1, "maximum": 3, "default": 1},
+                "log_transform": {"type": "boolean", "default": False},
+            },
+            "required": ["data", "variables"],
+        })
+    ),
     output_schema={
         "type": "object",
         "properties": {
@@ -224,19 +235,21 @@ async def difference(context, params) -> dict[str, Any]:
 
 @tool(
     name="standardize",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "data": table_schema(),
-            "variables": {"type": "array", "items": {"type": "string"}},
-            "method": {
-                "type": "string",
-                "enum": ["z_score", "min_max", "robust"],
-                "default": "z_score",
+    input_schema=add_output_data_name_param(
+        add_data_name_param({
+            "type": "object",
+            "properties": {
+                "data": table_schema(),
+                "variables": {"type": "array", "items": {"type": "string"}},
+                "method": {
+                    "type": "string",
+                    "enum": ["z_score", "min_max", "robust"],
+                    "default": "z_score",
+                },
             },
-        },
-        "required": ["data", "variables"],
-    },
+            "required": ["data", "variables"],
+        })
+    ),
     output_schema={
         "type": "object",
         "properties": {

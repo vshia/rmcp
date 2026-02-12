@@ -24,7 +24,7 @@ from ..registries.tools import tool
 
 @tool(
     name="list_r_objects",
-    description="List all objects in the current R workspace/session",
+    description="List all objects in the current R workspace. Use this to find the names of persisted datasets available for use with the 'data_name' parameter in other tools.",
     input_schema={
         "type": "object",
         "properties": {
@@ -67,7 +67,7 @@ async def list_r_objects(context: Context, params: dict[str, Any]) -> dict[str, 
     r_script = f"""
     # Set parameters
     pattern <- "{pattern}"
-    include_hidden <- {str(include_hidden).lower()}
+    include_hidden <- {str(include_hidden).upper()}
     sort_by <- "{sort_by}"
 
     # Get all objects

@@ -1,6 +1,10 @@
 """
 Time series analysis tools for RMCP.
 Comprehensive time series modeling and forecasting capabilities.
+
+All tools in this module support session-aware data loading:
+- Pass data inline via the 'data' parameter, OR
+- Reference a workspace object via the 'data_name' parameter
 """
 
 from typing import Any
@@ -8,11 +12,12 @@ from typing import Any
 from ..r_assets.loader import get_r_script
 from ..r_integration import execute_r_script_async
 from ..registries.tools import tool
+from .session_data import add_data_name_param_timeseries
 
 
 @tool(
     name="arima_model",
-    input_schema={
+    input_schema=add_data_name_param_timeseries({
         "type": "object",
         "properties": {
             "data": {
@@ -45,7 +50,7 @@ from ..registries.tools import tool
             },
         },
         "required": ["data"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -147,7 +152,7 @@ async def arima_model(context, params) -> dict[str, Any]:
 
 @tool(
     name="decompose_timeseries",
-    input_schema={
+    input_schema=add_data_name_param_timeseries({
         "type": "object",
         "properties": {
             "data": {
@@ -166,7 +171,7 @@ async def arima_model(context, params) -> dict[str, Any]:
             },
         },
         "required": ["data"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -235,7 +240,7 @@ async def decompose_timeseries(context, params) -> dict[str, Any]:
 
 @tool(
     name="stationarity_test",
-    input_schema={
+    input_schema=add_data_name_param_timeseries({
         "type": "object",
         "properties": {
             "data": {
@@ -248,7 +253,7 @@ async def decompose_timeseries(context, params) -> dict[str, Any]:
             "test": {"type": "string", "enum": ["adf", "kpss", "pp"], "default": "adf"},
         },
         "required": ["data"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {

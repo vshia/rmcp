@@ -52,6 +52,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "stderr_output": True,
     },
     "debug": False,
+    "aws": {
+        "s3_bucket": None,
+        "access_key_id": None,
+        "secret_access_key": None,
+        "session_token": None,
+        "region": "us-west-2",
+        "s3_prefix": "rmcp-uploads",
+    },
 }
 
 # Standard configuration file locations (in order of precedence)

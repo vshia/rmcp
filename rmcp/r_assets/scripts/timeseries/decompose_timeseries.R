@@ -11,32 +11,18 @@ library(knitr)
 frequency <- args$frequency %||% 12
 decomp_type <- args$type %||% "additive"
 
-# Extract values from data
-if ("data" %in% names(args) && "values" %in% names(args$data)) {
-  values <- args$data$values
-} else if ("values" %in% names(args)) {
-  values <- args$values
-} else if ("value_col" %in% names(args)) {
-  value_col <- args$value_col
-  if (value_col %in% names(data)) {
-    values <- data[[value_col]]
-  } else {
-    # Find first numeric column
-    numeric_cols <- names(data)[sapply(data, is.numeric)]
-    if (length(numeric_cols) > 0) {
-      values <- data[[numeric_cols[1]]]
-    } else {
-      stop("No numeric columns found for decomposition")
-    }
-  }
+# Use resolve_timeseries_data for session-aware data loading
+# This supports both inline data and workspace references via data_name
+# The function fails fast with a clear error if no data is provided
+ts_input <- resolve_timeseries_data(args)
+
+# Extract values from the resolved data
+if (is.list(ts_input) && "values" %in% names(ts_input)) {
+  values <- ts_input$values
+} else if (is.numeric(ts_input)) {
+  values <- ts_input
 } else {
-  # Find first numeric column
-  numeric_cols <- names(data)[sapply(data, is.numeric)]
-  if (length(numeric_cols) > 0) {
-    values <- data[[numeric_cols[1]]]
-  } else {
-    stop("No numeric columns found for decomposition")
-  }
+  stop("Resolved data must contain 'values' or be a numeric vector")
 }
 
 # Create time series

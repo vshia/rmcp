@@ -328,6 +328,10 @@ All tools provide professionally formatted output with markdown tables, statisti
         for callback in self._startup_callbacks:
             await callback()
 
+        # Note: R session persistence is handled via .RData snapshots in
+        # execute_r_script_async, not via RSessionManager. The session manager
+        # is available for future use but not required for current functionality.
+
         # Log registry summary
         tools_count = len(getattr(self.tools, "_tools", {}))
         resources_count = len(getattr(self.resources, "_static_resources", {})) + len(
@@ -361,6 +365,10 @@ All tools provide professionally formatted output with markdown tables, statisti
                 await callback()
             except Exception as e:
                 logger.error(f"Error in shutdown callback: {e}")
+
+        # Note: R session cleanup is handled by .RData file lifecycle,
+        # not by RSessionManager.
+
         logger.info("Server shutdown complete")
 
     def create_context(

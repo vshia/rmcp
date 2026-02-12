@@ -111,10 +111,10 @@ Save the `AccessKeyId` and `SecretAccessKey` from the output. The secret is only
 
 ```bash
 # Configure a named profile with the new credentials
-aws configure --profile logista-s3-service
+aws configure --profile logista-ai-test
 
 # Test access (replace with your bucket name)
-aws s3 ls s3://logista-response --profile logista-s3-service
+aws s3 ls s3://logista-ai-test --profile logista-ai-test
 ```
 
 ## Important Notes

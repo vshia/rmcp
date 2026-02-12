@@ -1,6 +1,10 @@
 """
 Descriptive statistics tools for RMCP.
 Comprehensive data exploration and summary capabilities.
+
+All tools in this module support session-aware data loading:
+- Pass data inline via the 'data' parameter, OR
+- Reference a workspace object via the 'data_name' parameter
 """
 
 from typing import Any
@@ -9,11 +13,12 @@ from ..core.schemas import table_schema
 from ..r_assets.loader import get_r_script
 from ..r_integration import execute_r_script_async
 from ..registries.tools import tool
+from .session_data import add_data_name_param
 
 
 @tool(
     name="summary_stats",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -26,7 +31,7 @@ from ..registries.tools import tool
             },
         },
         "required": ["data"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -93,7 +98,7 @@ async def summary_stats(context, params) -> dict[str, Any]:
 
 @tool(
     name="outlier_detection",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -106,7 +111,7 @@ async def summary_stats(context, params) -> dict[str, Any]:
             "threshold": {"type": "number", "minimum": 0, "default": 3.0},
         },
         "required": ["data", "variable"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -181,7 +186,7 @@ async def outlier_detection(context, params) -> dict[str, Any]:
 
 @tool(
     name="frequency_table",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -194,7 +199,7 @@ async def outlier_detection(context, params) -> dict[str, Any]:
             },
         },
         "required": ["data", "variables"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {

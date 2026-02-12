@@ -119,3 +119,5 @@ gcp_project_key.json
 
 # RMCP config
 .rmcp/config.json
+
+exports/**/*

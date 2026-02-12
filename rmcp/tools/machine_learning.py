@@ -1,6 +1,10 @@
 """
 Machine learning tools for RMCP.
 Clustering, classification trees, and ML capabilities.
+
+All tools in this module support session-aware data loading:
+- Pass data inline via the 'data' parameter, OR
+- Reference a workspace object via the 'data_name' parameter
 """
 
 from typing import Any
@@ -9,11 +13,12 @@ from ..core.schemas import formula_schema, table_schema
 from ..r_assets.loader import get_r_script
 from ..r_integration import execute_r_script_async
 from ..registries.tools import tool
+from .session_data import add_data_name_param
 
 
 @tool(
     name="kmeans_clustering",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -23,7 +28,7 @@ from ..registries.tools import tool
             "nstart": {"type": "integer", "minimum": 1, "default": 25},
         },
         "required": ["data", "variables", "k"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -130,7 +135,7 @@ async def kmeans_clustering(context, params) -> dict[str, Any]:
 
 @tool(
     name="decision_tree",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -144,7 +149,7 @@ async def kmeans_clustering(context, params) -> dict[str, Any]:
             "max_depth": {"type": "integer", "minimum": 1, "default": 30},
         },
         "required": ["data", "formula"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
@@ -243,7 +248,7 @@ async def decision_tree(context, params) -> dict[str, Any]:
 
 @tool(
     name="random_forest",
-    input_schema={
+    input_schema=add_data_name_param({
         "type": "object",
         "properties": {
             "data": table_schema(),
@@ -258,7 +263,7 @@ async def decision_tree(context, params) -> dict[str, Any]:
             "importance": {"type": "boolean", "default": True},
         },
         "required": ["data", "formula"],
-    },
+    }),
     output_schema={
         "type": "object",
         "properties": {
